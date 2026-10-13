@@ -5,8 +5,15 @@ import pytest
 import trimesh
 import pyvista as pv
 
+from pyroid.mesh_utils import (
+    auto_pierce_drain_holes,
+    compute_subsurface_void_map,
+    convert_stl_to_gyroid,
+    load_stl,
+    pierce_drain_hole,
+    prepare_for_printing,
+)
 from pyroid.models import STLConversionParams
-from pyroid.mesh_utils import load_stl, convert_stl_to_gyroid, prepare_for_printing
 
 
 def test_stl_gyroid_conversion():
@@ -187,6 +194,44 @@ def test_stl_gyroid_skeletal_conversion():
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+def test_compute_subsurface_void_map():
+    box = pv.Box(bounds=[-10, 10, -10, 10, -10, 10]).triangulate()
+    scores = compute_subsurface_void_map(
+        box, cell_size=5.0, wall_thickness=0.8, shell_thickness=1.0, is_skeletal=False
+    )
+    assert len(scores) == box.n_points
+    # The gyroid field varies periodically, so scores must span both positive and negative values
+    assert scores.max() > 0
+    assert scores.min() < 0
+
+    # Also test skeletal mode
+    scores_skel = compute_subsurface_void_map(
+        box, cell_size=5.0, wall_thickness=0.8, shell_thickness=1.0, is_skeletal=True
+    )
+    assert len(scores_skel) == box.n_points
+
+
+def test_pierce_drain_hole():
+    box = pv.Box(bounds=[-10, 10, -10, 10, -10, 10]).triangulate()
+    initial_cells = box.n_cells
+
+    # Pierce a 4mm diameter hole on the top face
+    pierced = pierce_drain_hole(box, point=[0.0, 0.0, 10.0], radius=2.0, depth=5.0)
+    assert pierced.n_points > 0
+    assert pierced.n_cells > initial_cells  # Hole edge introduces new boundary faces
+
+
+def test_auto_pierce_drain_holes():
+    box = pv.Box(bounds=[-10, 10, -10, 10, -10, 10]).triangulate()
+    initial_cells = box.n_cells
+
+    # Pierce 2 holes (drain at bottom, vent at top)
+    auto_pierced = auto_pierce_drain_holes(box, radius=1.5, depth=4.0, count=2)
+    assert auto_pierced.n_points > 0
+    assert auto_pierced.n_cells > initial_cells
+
 
 
 

@@ -26,3 +26,4 @@ PyRoid is a Python package, CLI tool, and Qt graphical interface for generating,
 - **Convert STL**: `uv run pyroid-cli -i input.stl -o gyroid_output.stl --cell-size 5.0`
 - **Convert STL with Shell**: `uv run pyroid-cli -i input.stl -o gyroid_output.stl --cell-size 5.0 --preserve-shell --shell-thickness 1.0`
 - **Convert STL Skeletal (Resin Drainage)**: `uv run pyroid-cli -i input.stl -o gyroid_output.stl --cell-size 5.0 --skeletal`
+- **Convert STL with Drain Holes**: `uv run pyroid-cli -i input.stl -o gyroid_output.stl --cell-size 5.0 --preserve-shell --auto-drain-holes --drain-hole-diameter 3.0`

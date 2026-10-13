@@ -9,6 +9,8 @@ A powerful, high-performance Python application and library for generating, visu
 - **Interactive GUI**: Intuitive dual-mode graphical interface (Parametric Gyroid & STL Volume Infill) with real-time PyVista 3D viewport.
 - **STL Volume Gyroidization**: Import any closed 3D STL model and convert its internal volume into a porous gyroid lattice structure.
 - **Skeletal & Sheet Lattice Modes**: Toggle between wall-based sheet gyroids and strut-based skeletal gyroids (single continuous void channel, ideal for SLA/resin draining).
+- **Subsurface Void Heatmap (X-Ray)**: Inspect an interactive surface color map showing internal void caverns (Green = optimal drain spot, Red = strut anchor).
+- **Interactive & Auto Drain Hole Piercing**: Click directly on the 3D model to pierce watertight cylindrical drainage/vent holes through the shell into the void, or auto-punch at lowest/highest points.
 - **Command Line Interface (`pyroid-cli`)**: Scriptable CLI supporting parametric generation, STL conversion, preset loading, offscreen rendering, and mesh stats.
 - **Powered by `uv`**: Ultra-fast dependency resolution, environment isolation, and project execution using `uv`.
 - **Type-Safe Data Models**: Powered by strongly-typed `GyroidParams` and `STLConversionParams` dataclasses.
@@ -76,7 +78,12 @@ uv run pyroid-cli --input-stl model.stl --output gyroid_shelled.stl --cell-size 
 uv run pyroid-cli --input-stl model.stl --output gyroid_skeletal.stl --cell-size 5.0 --skeletal
 ```
 
-#### 5. Offscreen Thumbnail Rendering & Stats
+#### 5. Convert STL with Preserved Shell & Auto-Pierced Drain/Vent Holes
+```bash
+uv run pyroid-cli --input-stl model.stl --output gyroid_drained.stl --cell-size 5.0 --preserve-shell --shell-thickness 1.0 --auto-drain-holes --drain-hole-diameter 3.0
+```
+
+#### 6. Offscreen Thumbnail Rendering & Stats
 ```bash
 uv run pyroid-cli --input-stl input.stl --output out.stl --render screenshot.png --print-stats
 ```

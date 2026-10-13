@@ -252,3 +252,142 @@ def render_offscreen(
     plotter.reset_camera()
     plotter.screenshot(output_image_path, window_size=window_size)
     plotter.close()
+
+
+def compute_subsurface_void_map(
+    mesh: pv.PolyData,
+    cell_size: float = 5.0,
+    wall_thickness: float = 0.8,
+    shell_thickness: float = 1.0,
+    is_skeletal: bool = False,
+    depth: float | None = None,
+) -> np.ndarray:
+    """
+    Compute a subsurface void score across mesh vertices.
+
+    Samples points at distance `depth` inwards along each vertex normal to evaluate
+    the internal gyroid scalar field. Positive scores represent open internal caverns/voids
+    (ideal drainage piercing locations), whereas negative scores represent solid struts/walls.
+    """
+    if len(mesh.points) == 0:
+        return np.array([], dtype=np.float32)
+
+    sample_depth = depth if depth is not None else (shell_thickness + 0.5)
+
+    mesh_copy = mesh.copy()
+    if "Normals" not in mesh_copy.point_data:
+        mesh_copy.compute_normals(cell_normals=False, point_normals=True, inplace=True)
+    normals = mesh_copy.point_data["Normals"]
+
+    pts_sub = mesh_copy.points - sample_depth * normals
+    k = 2.0 * np.pi / max(cell_size, 0.001)
+    x, y, z = pts_sub[:, 0], pts_sub[:, 1], pts_sub[:, 2]
+    gyroid_val = (
+        np.sin(k * x) * np.cos(k * y)
+        + np.sin(k * y) * np.cos(k * z)
+        + np.sin(k * z) * np.cos(k * x)
+    )
+
+    if is_skeletal:
+        r = wall_thickness / max(cell_size, 0.001)
+        thresh = np.clip(3.0 * (r - 0.2), -1.1, 1.1)
+        void_scores = gyroid_val - thresh
+    else:
+        t = np.clip(5.0 * wall_thickness / cell_size, 0.05, 1.5)
+        void_scores = np.abs(gyroid_val) - t
+
+    return void_scores.astype(np.float32)
+
+
+def pierce_drain_hole(
+    mesh: pv.PolyData | trimesh.Trimesh,
+    point: tuple[float, float, float] | np.ndarray,
+    normal: tuple[float, float, float] | np.ndarray | None = None,
+    radius: float = 1.5,
+    depth: float = 6.0,
+) -> pv.PolyData:
+    """
+    Pierce a cylindrical drainage or vent hole through the shell into the internal cavity.
+
+    Args:
+        mesh: Input PyVista PolyData or Trimesh.
+        point: 3D coordinates on the surface where the hole should be drilled.
+        normal: Outward surface normal vector. If None, derived from closest vertex normal.
+        radius: Hole radius in mm (default 1.5 mm = 3.0 mm diameter).
+        depth: Hole penetration depth in mm (default 6.0 mm).
+
+    Returns:
+        PyVista PolyData mesh with the hole cleanly carved out.
+    """
+    import manifold3d
+
+    if isinstance(mesh, pv.PolyData):
+        faces = mesh.faces.reshape((-1, 4))[:, 1:]
+        tri = trimesh.Trimesh(vertices=mesh.points, faces=faces, process=False)
+    else:
+        tri = mesh.copy()
+
+    p = np.asarray(point, dtype=np.float64)
+    if normal is None:
+        tri.fix_normals()
+        idx = tri.kdtree.query(p)[1]
+        n = tri.vertex_normals[idx]
+    else:
+        n = np.asarray(normal, dtype=np.float64)
+
+    norm = np.linalg.norm(n)
+    n = n / norm if norm > 1e-6 else np.array([0.0, 0.0, 1.0])
+
+    p_start = p + 0.5 * n
+    p_end = p - depth * n
+    cyl = trimesh.creation.cylinder(radius=max(radius, 0.1), segment=[p_start, p_end], sections=32)
+
+    m_mesh = manifold3d.Manifold(
+        manifold3d.Mesh(
+            vert_properties=np.asarray(tri.vertices, dtype=np.float32),
+            tri_verts=np.asarray(tri.faces, dtype=np.uint32),
+        )
+    )
+    m_cyl = manifold3d.Manifold(
+        manifold3d.Mesh(
+            vert_properties=np.asarray(cyl.vertices, dtype=np.float32),
+            tri_verts=np.asarray(cyl.faces, dtype=np.uint32),
+        )
+    )
+
+    diff = m_mesh - m_cyl
+    res = diff.to_mesh()
+    tri_res = trimesh.Trimesh(
+        vertices=res.vert_properties, faces=res.tri_verts, process=False
+    )
+    return pv.wrap(tri_res)
+
+
+def auto_pierce_drain_holes(
+    mesh: pv.PolyData | trimesh.Trimesh,
+    radius: float = 1.5,
+    depth: float = 6.0,
+    count: int = 2,
+) -> pv.PolyData:
+    """
+    Automatically pierce drainage and vent holes at optimal extreme positions.
+
+    Hole 1 is placed at the lowest point along the Z axis (gravity drain).
+    Hole 2 (if count >= 2) is placed at the highest point along the Z axis (anti-suction air vent).
+    """
+    current_mesh = mesh if isinstance(mesh, pv.PolyData) else pv.wrap(mesh)
+    pts = current_mesh.points
+    if len(pts) == 0:
+        return current_mesh
+
+    # Primary drain hole at lowest Z point
+    p_bottom = pts[np.argmin(pts[:, 2])]
+    current_mesh = pierce_drain_hole(current_mesh, point=p_bottom, radius=radius, depth=depth)
+
+    if count >= 2:
+        pts2 = current_mesh.points
+        p_top = pts2[np.argmax(pts2[:, 2])]
+        current_mesh = pierce_drain_hole(current_mesh, point=p_top, radius=radius, depth=depth)
+
+    return current_mesh
+

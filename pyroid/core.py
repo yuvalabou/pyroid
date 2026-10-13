@@ -10,8 +10,15 @@ import numpy as np
 import pyvista as pv
 import trimesh
 
-from pyroid.mesh_utils import (convert_stl_to_gyroid, load_stl,
-                               prepare_for_printing, render_offscreen)
+from pyroid.mesh_utils import (
+    auto_pierce_drain_holes,
+    compute_subsurface_void_map,
+    convert_stl_to_gyroid,
+    load_stl,
+    pierce_drain_hole,
+    prepare_for_printing,
+    render_offscreen,
+)
 from pyroid.models import GyroidParams, STLConversionParams
 
 
@@ -237,3 +244,50 @@ class GyroidGenerator:
                 "cell_height": 1.8,
             },
         }
+
+    def pierce_drain_hole(
+        self,
+        point: tuple[float, float, float] | np.ndarray,
+        normal: tuple[float, float, float] | np.ndarray | None = None,
+        radius: float = 1.5,
+        depth: float = 6.0,
+    ) -> pv.PolyData:
+        """Pierce a cylindrical drain hole through the current mesh."""
+        if self.mesh is None:
+            raise ValueError("No mesh generated to pierce hole into")
+        self.mesh = pierce_drain_hole(
+            self.mesh, point=point, normal=normal, radius=radius, depth=depth
+        )
+        return self.mesh
+
+    def auto_pierce_drain_holes(
+        self, radius: float = 1.5, depth: float = 6.0, count: int = 2
+    ) -> pv.PolyData:
+        """Automatically pierce drainage and vent holes at lowest and highest points."""
+        if self.mesh is None:
+            raise ValueError("No mesh generated to pierce hole into")
+        self.mesh = auto_pierce_drain_holes(
+            self.mesh, radius=radius, depth=depth, count=count
+        )
+        return self.mesh
+
+    def compute_subsurface_void_map(
+        self,
+        cell_size: float = 5.0,
+        wall_thickness: float = 0.8,
+        shell_thickness: float = 1.0,
+        is_skeletal: bool = False,
+        depth: float | None = None,
+    ) -> np.ndarray:
+        """Compute the subsurface void map for the current mesh."""
+        if self.mesh is None:
+            raise ValueError("No mesh generated to evaluate subsurface void map")
+        return compute_subsurface_void_map(
+            self.mesh,
+            cell_size=cell_size,
+            wall_thickness=wall_thickness,
+            shell_thickness=shell_thickness,
+            is_skeletal=is_skeletal,
+            depth=depth,
+        )
+

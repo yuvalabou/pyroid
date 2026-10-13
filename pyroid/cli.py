@@ -68,6 +68,24 @@ def parse_args():
         default=False,
         help="Generate skeletal strut-based lattice (single continuous void) instead of sheet walls",
     )
+    stl_group.add_argument(
+        "--auto-drain-holes",
+        action="store_true",
+        default=False,
+        help="Automatically pierce drain and vent holes at lowest and highest Z coordinates for resin draining",
+    )
+    stl_group.add_argument(
+        "--drain-hole-diameter",
+        type=float,
+        default=3.0,
+        help="Diameter (mm) of pierced drain holes (default: 3.0)",
+    )
+    stl_group.add_argument(
+        "--drain-hole-depth",
+        type=float,
+        default=6.0,
+        help="Penetration depth (mm) of pierced drain holes (default: 6.0)",
+    )
 
     # Parametric Gyroid Group
     param_group = parser.add_argument_group("Parametric Gyroid Parameters")
@@ -194,6 +212,15 @@ def main():
 
             print("Generating parametric gyroid structure...")
             generator.generate()
+
+        # Auto-pierce drain holes if configured
+        if getattr(args, "auto_drain_holes", False) and generator.mesh is not None:
+            print("Auto-piercing drainage and vent holes...")
+            generator.auto_pierce_drain_holes(
+                radius=args.drain_hole_diameter / 2.0,
+                depth=args.drain_hole_depth,
+                count=2,
+            )
 
         # Save output mesh
         ext = os.path.splitext(args.output)[1].lower()

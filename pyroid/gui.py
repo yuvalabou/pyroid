@@ -9,6 +9,7 @@ import os
 import sys
 import time
 
+import numpy as np
 import qdarkstyle
 from PyQt5.QtCore import QEvent, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -33,6 +34,11 @@ from PyQt5.QtWidgets import (
 from pyvistaqt import QtInteractor
 
 from pyroid.core import GyroidGenerator
+from pyroid.mesh_utils import (
+    auto_pierce_drain_holes,
+    compute_subsurface_void_map,
+    pierce_drain_hole,
+)
 from pyroid.models import GyroidParams, STLConversionParams
 
 
@@ -101,6 +107,7 @@ class GyroidGeneratorGUI(QMainWindow):
         self.config_file = os.path.join(os.path.expanduser("~"), ".pyroid_config.json")
         self.current_preset = "default"
         self._gen_start_time = 0.0
+        self._mesh_undo_stack: list = []
 
         self.init_ui()
         self.load_config()
@@ -305,7 +312,51 @@ class GyroidGeneratorGUI(QMainWindow):
         )
         self.cutaway_check.toggled.connect(self.on_view_mode_changed)
         view_layout.addWidget(self.cutaway_check)
+
+        self.void_map_check = QCheckBox("Show Subsurface Void Map (X-Ray)")
+        self.void_map_check.setToolTip(
+            "Colorize outer surface showing internal void caverns (Green = ideal drain location, Red = strut anchor)"
+        )
+        self.void_map_check.toggled.connect(self.on_view_mode_changed)
+        view_layout.addWidget(self.void_map_check)
         left_layout.addWidget(view_box)
+
+        # Drain Holes Section
+        drain_box = QGroupBox("Drain Holes (Resin / SLS)")
+        drain_layout = QVBoxLayout(drain_box)
+
+        dh_inputs = QHBoxLayout()
+        dh_inputs.addWidget(QLabel("Dia (mm):"))
+        self.hole_dia_edit = QLineEdit("3.0")
+        self.hole_dia_edit.setMaximumWidth(45)
+        dh_inputs.addWidget(self.hole_dia_edit)
+
+        dh_inputs.addWidget(QLabel("Depth (mm):"))
+        self.hole_depth_edit = QLineEdit("6.0")
+        self.hole_depth_edit.setMaximumWidth(45)
+        dh_inputs.addWidget(self.hole_depth_edit)
+        drain_layout.addLayout(dh_inputs)
+
+        self.pierce_mode_btn = QPushButton("Pierce Hole (Click on Model)")
+        self.pierce_mode_btn.setCheckable(True)
+        self.pierce_mode_btn.toggled.connect(self.on_toggle_pierce_mode)
+        drain_layout.addWidget(self.pierce_mode_btn)
+
+        drain_actions = QHBoxLayout()
+        self.auto_drain_btn = QPushButton("Auto Drain & Vent")
+        self.auto_drain_btn.setToolTip(
+            "Automatically punch drain hole at lowest point and vent hole at top"
+        )
+        self.auto_drain_btn.clicked.connect(self.on_auto_pierce_clicked)
+        drain_actions.addWidget(self.auto_drain_btn)
+
+        self.undo_hole_btn = QPushButton("Undo Hole")
+        self.undo_hole_btn.setEnabled(False)
+        self.undo_hole_btn.clicked.connect(self.on_undo_hole_clicked)
+        drain_actions.addWidget(self.undo_hole_btn)
+        drain_layout.addLayout(drain_actions)
+
+        left_layout.addWidget(drain_box)
 
         # Stats section
         self.stats_box = QGroupBox("Mesh Statistics")
@@ -606,17 +657,74 @@ class GyroidGeneratorGUI(QMainWindow):
                 mesh_to_show = self.generator.mesh
 
         if mesh_to_show.n_points > 0:
-            self.plotter.add_mesh(
-                mesh_to_show, scalars=mesh_to_show.points[:, -1], show_scalar_bar=False
-            )
+            if (
+                getattr(self, "void_map_check", None)
+                and self.void_map_check.isChecked()
+                and self.generator is not None
+            ):
+                try:
+                    cell_size = float(self.stl_cell_edit.text())
+                except Exception:
+                    cell_size = 5.0
+                try:
+                    wall_thick = float(self.stl_wall_edit.text())
+                except Exception:
+                    wall_thick = 0.8
+                try:
+                    shell_thick = float(self.stl_shell_edit.text())
+                except Exception:
+                    shell_thick = 1.0
+                is_skeletal = (
+                    self.stl_skeletal_check.isChecked()
+                    if hasattr(self, "stl_skeletal_check")
+                    else False
+                )
+
+                mesh_copy = mesh_to_show.copy()
+                void_scores = compute_subsurface_void_map(
+                    mesh_copy,
+                    cell_size=cell_size,
+                    wall_thickness=wall_thick,
+                    shell_thickness=shell_thick,
+                    is_skeletal=is_skeletal,
+                )
+                mesh_copy["Void Score"] = void_scores
+                self.plotter.add_mesh(
+                    mesh_copy,
+                    scalars="Void Score",
+                    cmap="RdYlGn",
+                    scalar_bar_args={
+                        "title": "Subsurface Void (Green=Drain Here, Red=Strut)"
+                    },
+                    show_scalar_bar=True,
+                )
+            else:
+                self.plotter.add_mesh(
+                    mesh_to_show, scalars=mesh_to_show.points[:, -1], show_scalar_bar=False
+                )
         self.plotter.add_bounding_box()
         self.plotter.show_axes()
         self.plotter.reset_camera()
         self.update_stats()
         self.stats_box.setVisible(True)
 
+        # Restore picking if pierce mode is active
+        if getattr(self, "pierce_mode_btn", None) and self.pierce_mode_btn.isChecked():
+            self.plotter.enable_surface_point_picking(
+                callback=self.on_mesh_picked_for_hole,
+                left_clicking=True,
+                show_message=False,
+                show_point=False,
+            )
+
     def on_generation_finished(self, generator: GyroidGenerator):
         self.generator = generator
+        self._mesh_undo_stack = []
+        if hasattr(self, "undo_hole_btn"):
+            self.undo_hole_btn.setEnabled(False)
+        if hasattr(self, "pierce_mode_btn") and self.pierce_mode_btn.isChecked():
+            self.pierce_mode_btn.setChecked(False)
+
         elapsed = time.perf_counter() - self._gen_start_time
         n_cells = generator.mesh.n_cells if generator.mesh is not None else 0
         self.statusBar.showMessage(
@@ -626,6 +734,99 @@ class GyroidGeneratorGUI(QMainWindow):
         self.convert_stl_btn.setEnabled(True)
         self.progressBar.setVisible(False)
         self.render_current_mesh()
+
+    def on_toggle_pierce_mode(self, checked: bool):
+        if checked:
+            if self.generator is None or self.generator.mesh is None:
+                QMessageBox.warning(self, "Warning", "Please generate a mesh first.")
+                self.pierce_mode_btn.setChecked(False)
+                return
+            self.pierce_mode_btn.setText("Click Mesh to Pierce (Active)")
+            self.statusBar.showMessage(
+                "Drain hole mode: click on the mesh surface to punch a hole."
+            )
+            self.plotter.enable_surface_point_picking(
+                callback=self.on_mesh_picked_for_hole,
+                left_clicking=True,
+                show_message=False,
+                show_point=False,
+            )
+        else:
+            self.pierce_mode_btn.setText("Pierce Hole (Click on Model)")
+            self.plotter.disable_picking()
+            self.statusBar.showMessage("Drain hole mode deactivated.")
+
+    def on_mesh_picked_for_hole(self, point):
+        if self.generator is None or self.generator.mesh is None:
+            return
+        if point is None or len(point) != 3 or np.isnan(point).any():
+            return
+        try:
+            diameter = float(self.hole_dia_edit.text())
+            depth = float(self.hole_depth_edit.text())
+        except ValueError:
+            diameter = 3.0
+            depth = 6.0
+
+        radius = max(0.2, diameter / 2.0)
+        self._mesh_undo_stack.append(self.generator.mesh.copy())
+
+        try:
+            self.statusBar.showMessage("Piercing drain hole...")
+            QApplication.processEvents()
+            new_mesh = pierce_drain_hole(
+                self.generator.mesh,
+                point=point,
+                radius=radius,
+                depth=depth,
+            )
+            self.generator.mesh = new_mesh
+            self.render_current_mesh()
+            self.undo_hole_btn.setEnabled(True)
+            self.statusBar.showMessage(
+                f"Pierced {diameter:.1f}mm hole at ({point[0]:.1f}, {point[1]:.1f}, {point[2]:.1f})"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error Piercing Hole", str(e))
+
+    def on_auto_pierce_clicked(self):
+        if self.generator is None or self.generator.mesh is None:
+            QMessageBox.warning(self, "Warning", "Please generate a mesh first.")
+            return
+        try:
+            diameter = float(self.hole_dia_edit.text())
+            depth = float(self.hole_depth_edit.text())
+        except ValueError:
+            diameter = 3.0
+            depth = 6.0
+
+        self._mesh_undo_stack.append(self.generator.mesh.copy())
+
+        try:
+            self.statusBar.showMessage("Auto-piercing drainage & vent holes...")
+            QApplication.processEvents()
+            new_mesh = auto_pierce_drain_holes(
+                self.generator.mesh,
+                radius=max(0.2, diameter / 2.0),
+                depth=depth,
+                count=2,
+            )
+            self.generator.mesh = new_mesh
+            self.render_current_mesh()
+            self.undo_hole_btn.setEnabled(True)
+            self.statusBar.showMessage(
+                f"Auto-pierced 2 drainage and vent holes ({diameter:.1f}mm)."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error Auto-Piercing Holes", str(e))
+
+    def on_undo_hole_clicked(self):
+        if self._mesh_undo_stack and self.generator is not None:
+            self.generator.mesh = self._mesh_undo_stack.pop()
+            self.render_current_mesh()
+            self.statusBar.showMessage("Undid last pierced hole.")
+            if not self._mesh_undo_stack:
+                self.undo_hole_btn.setEnabled(False)
 
     def on_generation_error(self, error_msg):
         QMessageBox.critical(self, "Generation Failed", error_msg)
