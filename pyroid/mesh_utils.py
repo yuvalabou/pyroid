@@ -3,11 +3,10 @@ import numpy as np
 import scipy.ndimage as ndi
 import pyvista as pv
 import trimesh
-from typing import Tuple, Union
 from pyroid.models import STLConversionParams
 
 
-def load_stl(filepath: str) -> Tuple[trimesh.Trimesh, pv.PolyData]:
+def load_stl(filepath: str) -> tuple[trimesh.Trimesh, pv.PolyData]:
     """Load an STL file into both Trimesh and PyVista objects."""
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"STL file not found: {filepath}")
@@ -146,7 +145,7 @@ def convert_stl_to_gyroid(stl_mesh: trimesh.Trimesh, params: STLConversionParams
     return mesh
 
 
-def prepare_for_printing(mesh: Union[pv.PolyData, trimesh.Trimesh], flat_cap: bool = False) -> trimesh.Trimesh:
+def prepare_for_printing(mesh: pv.PolyData | trimesh.Trimesh, flat_cap: bool = False) -> trimesh.Trimesh:
     """Ensure generated mesh is manifold/watertight for 3D printing."""
     if isinstance(mesh, pv.PolyData):
         faces = mesh.faces.reshape((-1, 4))[:, 1:]
@@ -174,7 +173,7 @@ def prepare_for_printing(mesh: Union[pv.PolyData, trimesh.Trimesh], flat_cap: bo
     return tri
 
 
-def render_offscreen(mesh: pv.PolyData, output_image_path: str, window_size=(800, 600)):
+def render_offscreen(mesh: pv.PolyData, output_image_path: str, window_size: tuple[int, int] = (800, 600)):
     """Render a thumbnail image of the mesh headlessly."""
     plotter = pv.Plotter(off_screen=True)
     plotter.add_mesh(mesh, color="lightblue", show_edges=True)

@@ -1,7 +1,7 @@
 import numpy as np
 import pyvista as pv
 import trimesh
-from typing import Dict, Any, Tuple, Optional, Union
+from typing import Any
 
 from pyroid.models import GyroidParams, STLConversionParams
 from pyroid.mesh_utils import load_stl, convert_stl_to_gyroid, prepare_for_printing, render_offscreen
@@ -12,7 +12,7 @@ class GyroidGenerator:
     
     DEFAULT_PARAMS = GyroidParams().to_dict()
 
-    def __init__(self, params: Optional[Union[GyroidParams, Dict[str, Any]]] = None):
+    def __init__(self, params: GyroidParams | dict[str, Any] | None = None):
         """
         Initialize the gyroid generator with parameters.
         
@@ -26,9 +26,9 @@ class GyroidGenerator:
         else:
             self.params = GyroidParams()
 
-        self.mesh: Optional[pv.PolyData] = None
+        self.mesh: pv.PolyData | None = None
 
-    def validate_params(self) -> Tuple[bool, str]:
+    def validate_params(self) -> tuple[bool, str]:
         """Validate parameters using the GyroidParams data model."""
         return self.params.validate()
 
@@ -132,7 +132,7 @@ class GyroidGenerator:
             raise ValueError("No mesh has been generated yet")
         render_offscreen(self.mesh, filename)
 
-    def get_mesh_stats(self) -> Dict[str, Any]:
+    def get_mesh_stats(self) -> dict[str, Any]:
         """Return quantitative mesh metrics."""
         if self.mesh is None:
             raise ValueError("No mesh has been generated yet")
@@ -146,7 +146,7 @@ class GyroidGenerator:
         }
 
     @classmethod
-    def get_param_descriptions(cls) -> Dict[str, str]:
+    def get_param_descriptions(cls) -> dict[str, str]:
         """Return parameter descriptions."""
         return {
             'res': 'Resolution of the grid in each dimension.',
@@ -162,7 +162,7 @@ class GyroidGenerator:
         }
 
     @classmethod
-    def get_presets(cls) -> Dict[str, Dict[str, Any]]:
+    def get_presets(cls) -> dict[str, dict[str, Any]]:
         """Return predefined parameter presets."""
         return {
             "default": cls.DEFAULT_PARAMS,

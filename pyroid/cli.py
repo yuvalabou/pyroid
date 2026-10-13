@@ -136,11 +136,12 @@ def main():
 
         # Save output mesh
         ext = os.path.splitext(args.output)[1].lower()
-        if ext == '.obj':
-            generator.save_obj(args.output)
-        else:
-            flat_cap = args.flat_cap if args.input_stl else True
-            generator.save_stl(args.output, prepare_manifold=True, flat_cap=flat_cap)
+        match ext:
+            case '.obj':
+                generator.save_obj(args.output)
+            case _:
+                flat_cap = args.flat_cap if args.input_stl else True
+                generator.save_stl(args.output, prepare_manifold=True, flat_cap=flat_cap)
         print(f"Mesh saved successfully to {args.output}")
 
         # Offscreen render thumbnail if requested

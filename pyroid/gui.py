@@ -1,7 +1,6 @@
 import sys
 import os
 import json
-from typing import Optional
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                            QHBoxLayout, QLabel, QLineEdit, QPushButton, 
                            QFileDialog, QMessageBox, QComboBox, QGroupBox,
@@ -66,7 +65,7 @@ class GyroidGeneratorGUI(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.generator: Optional[GyroidGenerator] = None
+        self.generator: GyroidGenerator | None = None
         self.config_file = os.path.join(os.path.expanduser("~"), ".pyroid_config.json")
         self.current_preset = "default"
         
@@ -386,15 +385,18 @@ class GyroidGeneratorGUI(QMainWindow):
             if not file_path or not os.path.isfile(file_path):
                 continue
 
-            lower_path = file_path.lower()
-            if lower_path.endswith('.stl'):
-                self.load_stl_file(file_path)
-                handled = True
-                break
-            elif lower_path.endswith('.json'):
-                self.load_preset_file(file_path)
-                handled = True
-                break
+            _, ext = os.path.splitext(file_path.lower())
+            match ext:
+                case '.stl':
+                    self.load_stl_file(file_path)
+                    handled = True
+                    break
+                case '.json':
+                    self.load_preset_file(file_path)
+                    handled = True
+                    break
+                case _:
+                    continue
 
         if handled:
             event.acceptProposedAction()
@@ -568,12 +570,13 @@ class GyroidGeneratorGUI(QMainWindow):
         if filename:
             if not filename.lower().endswith(f".{file_type}"):
                 filename += f".{file_type}"
-            if file_type == "stl":
-                is_stl_tab = self.tabs.currentIndex() == 1
-                flat_cap = self.stl_cap_check.isChecked() if is_stl_tab else True
-                self.generator.save_stl(filename, prepare_manifold=True, flat_cap=flat_cap)
-            else:
-                self.generator.save_obj(filename)
+            match file_type:
+                case "stl":
+                    is_stl_tab = self.tabs.currentIndex() == 1
+                    flat_cap = self.stl_cap_check.isChecked() if is_stl_tab else True
+                    self.generator.save_stl(filename, prepare_manifold=True, flat_cap=flat_cap)
+                case "obj":
+                    self.generator.save_obj(filename)
             self.statusBar.showMessage(f"Saved to {filename}")
 
     def new_project(self):

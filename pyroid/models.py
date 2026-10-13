@@ -1,8 +1,8 @@
-from dataclasses import dataclass, field, asdict
-from typing import Dict, Any, Tuple
+from dataclasses import asdict, dataclass, field
+from typing import Any, Self
 
 
-@dataclass
+@dataclass(slots=True)
 class GyroidParams:
     """Parameters for generating radially symmetrical gyroid structures."""
     res: int = field(default=80, metadata={"help": "Grid resolution in each dimension"})
@@ -16,7 +16,7 @@ class GyroidParams:
     cell_radius: float = field(default=2.0, metadata={"help": "Gyroid cell pore radius"})
     cell_height: float = field(default=3.0, metadata={"help": "Gyroid cell vertical height"})
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         """Validate parameter values for mathematical correctness."""
         if not isinstance(self.res, int) or self.res <= 0:
             return False, "Resolution must be a positive integer"
@@ -30,19 +30,19 @@ class GyroidParams:
             return False, "Cell radius and height must be positive"
         return True, ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert dataclass to dictionary."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "GyroidParams":
+    def from_dict(cls, data: dict[str, Any]) -> Self:
         """Instantiate GyroidParams from dictionary, filtering unknown fields."""
         valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
         filtered = {k: (int(v) if k == 'res' else float(v)) for k, v in data.items() if k in valid_keys}
         return cls(**filtered)
 
 
-@dataclass
+@dataclass(slots=True)
 class STLConversionParams:
     """Parameters for converting an external STL file's volume into a gyroid lattice."""
     stl_path: str = field(metadata={"help": "Path to input STL file"})
@@ -53,7 +53,7 @@ class STLConversionParams:
     preserve_shell: bool = field(default=False, metadata={"help": "Preserve original STL boundary as a solid shell"})
     shell_thickness: float = field(default=1.0, metadata={"help": "Thickness of the preserved shell (in model units/mm)"})
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         if not self.stl_path:
             return False, "Input STL path must be specified"
         if self.resolution <= 10:
