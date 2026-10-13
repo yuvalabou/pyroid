@@ -48,7 +48,7 @@ class STLConversionParams:
     stl_path: str = field(metadata={"help": "Path to input STL file"})
     resolution: int = field(default=80, metadata={"help": "Voxel grid resolution along max dimension"})
     cell_size: float = field(default=5.0, metadata={"help": "Gyroid unit cell size (mm or model units)"})
-    wall_thickness: float = field(default=0.5, metadata={"help": "Thickness of the gyroid lattice walls"})
+    wall_thickness: float = field(default=0.8, metadata={"help": "Thickness of the gyroid lattice walls (in model units/mm)"})
     flat_cap: bool = field(default=False, metadata={"help": "Trim and cap top/bottom surfaces for 3D printing"})
     preserve_shell: bool = field(default=False, metadata={"help": "Preserve original STL boundary as a solid shell"})
     shell_thickness: float = field(default=1.0, metadata={"help": "Thickness of the preserved shell (in model units/mm)"})

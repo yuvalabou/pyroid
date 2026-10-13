@@ -78,3 +78,41 @@ def test_stl_gyroid_conversion_with_preserved_shell():
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+def test_stl_gyroid_calibrated_wall_thickness():
+    # A larger box to measure volume fraction scaling with thickness
+    cube = trimesh.creation.box(extents=[15, 15, 15])
+    with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as tmp:
+        cube.export(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        tri_mesh, _ = load_stl(tmp_path)
+        # Thinner wall (0.4 mm)
+        params_thin = STLConversionParams(
+            stl_path=tmp_path,
+            resolution=40,
+            cell_size=5.0,
+            wall_thickness=0.4
+        )
+        mesh_thin = convert_stl_to_gyroid(tri_mesh, params_thin)
+
+        # Thicker wall (1.0 mm)
+        params_thick = STLConversionParams(
+            stl_path=tmp_path,
+            resolution=40,
+            cell_size=5.0,
+            wall_thickness=1.0
+        )
+        mesh_thick = convert_stl_to_gyroid(tri_mesh, params_thick)
+
+        assert mesh_thin.n_points > 0
+        assert mesh_thick.n_points > 0
+        # Thicker wall must result in higher mesh volume than thinner wall
+        assert mesh_thick.volume > mesh_thin.volume
+
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+

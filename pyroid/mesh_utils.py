@@ -74,8 +74,9 @@ def convert_stl_to_gyroid(stl_mesh: trimesh.Trimesh, params: STLConversionParams
         np.sin(k * z) * np.cos(k * x)
     )
 
-    # Thickness threshold (relative scaling)
-    t = np.clip(params.wall_thickness / params.cell_size, 0.05, 1.5)
+    # Thickness threshold calibrated to physical Euclidean thickness:
+    # Scaling by 5.0 accounts for the steep spatial gradient of the gyroid trigonometric field (||grad G|| ≈ 1.53 * 2*pi/L ≈ 9.6/L).
+    t = np.clip(5.0 * params.wall_thickness / params.cell_size, 0.05, 1.5)
 
     # Mask out points outside the STL geometry
     inside_3d = inside_mask.reshape(x.shape)

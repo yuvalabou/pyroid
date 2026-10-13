@@ -48,8 +48,8 @@ def parse_args():
                            help="Outer radius")
     param_group.add_argument("--phi-scale", type=float, default=8,
                            help="Angular scaling factor")
-    param_group.add_argument("--wall-thickness", type=float, default=11.5,
-                           help="Wall thickness")
+    param_group.add_argument("--wall-thickness", type=float, default=None,
+                           help="Wall thickness (mm for STL conversion, default 0.8; annular shell width for parametric, default 11.5)")
     param_group.add_argument("--cell-radius", type=float, default=2,
                            help="Cell radius")
     param_group.add_argument("--cell-height", type=float, default=3,
@@ -83,11 +83,12 @@ def main():
         # Check if converting an STL file
         if args.input_stl:
             print(f"Loading input STL: {args.input_stl}...")
+            stl_wall = args.wall_thickness if args.wall_thickness is not None else 0.8
             stl_params = STLConversionParams(
                 stl_path=args.input_stl,
                 resolution=args.res,
                 cell_size=args.cell_size,
-                wall_thickness=args.wall_thickness,
+                wall_thickness=stl_wall,
                 flat_cap=args.flat_cap,
                 preserve_shell=args.preserve_shell,
                 shell_thickness=args.shell_thickness
@@ -116,10 +117,11 @@ def main():
                     return 1
 
             # Override with explicit flags
+            param_wall = args.wall_thickness if args.wall_thickness is not None else 11.5
             cli_overrides = {
                 'res': args.res, 'a': args.a, 'b': args.b, 'c': args.c,
                 'r1': args.r1, 'r2': args.r2, 'phi_scale': args.phi_scale,
-                'wall_thickness': args.wall_thickness,
+                'wall_thickness': param_wall,
                 'cell_radius': args.cell_radius, 'cell_height': args.cell_height
             }
             params_dict.update(cli_overrides)

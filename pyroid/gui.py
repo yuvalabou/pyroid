@@ -196,8 +196,8 @@ class GyroidGeneratorGUI(QMainWindow):
 
         # Wall Thickness
         wall_row = QHBoxLayout()
-        wall_row.addWidget(QLabel("Wall Thickness:"))
-        self.stl_wall_edit = QLineEdit("0.5")
+        wall_row.addWidget(QLabel("Wall Thickness (mm):"))
+        self.stl_wall_edit = QLineEdit("0.8")
         wall_row.addWidget(self.stl_wall_edit)
         stl_params_layout.addLayout(wall_row)
 
