@@ -1,8 +1,16 @@
+"""Mesh processing and volumetric utility functions.
+
+Provides utilities for STL loading, volumetric voxel containment testing,
+gyroid lattice infill generation, watertight manifold preparation, and offscreen rendering.
+"""
 import os
+from collections.abc import Callable
+
 import numpy as np
-import scipy.ndimage as ndi
 import pyvista as pv
+import scipy.ndimage as ndi
 import trimesh
+
 from pyroid.models import STLConversionParams
 
 
@@ -11,19 +19,23 @@ def load_stl(filepath: str) -> tuple[trimesh.Trimesh, pv.PolyData]:
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"STL file not found: {filepath}")
 
-    tri_mesh = trimesh.load(filepath, force='mesh')
+    tri_mesh = trimesh.load(filepath, force="mesh")
     pv_mesh = pv.read(filepath)
     return tri_mesh, pv_mesh
 
 
-def convert_stl_to_gyroid(stl_mesh: trimesh.Trimesh, params: STLConversionParams) -> pv.PolyData:
+def convert_stl_to_gyroid(
+    stl_mesh: trimesh.Trimesh,
+    params: STLConversionParams,
+    progress_callback: Callable[[int, str], None] | None = None,
+) -> pv.PolyData:
     """
     Convert an input STL 3D mesh volume into a gyroid lattice structure.
-    
+
     Args:
         stl_mesh: Input Trimesh object (should be a manifold/closed surface)
         params: STLConversionParams configuration
-        
+
     Returns:
         PyVista PolyData object representing the generated gyroid mesh within the STL boundary.
     """
@@ -47,15 +59,21 @@ def convert_stl_to_gyroid(stl_mesh: trimesh.Trimesh, params: STLConversionParams
     ny = max(12, int(np.round(res * (grid_extent[1] / max_dim))))
     nz = max(12, int(np.round(res * (grid_extent[2] / max_dim))))
 
+    if progress_callback:
+        progress_callback(10, f"Initializing 3D voxel grid ({nx}x{ny}x{nz})...")
+
     # Create 3D grid across padded bounding box
     x, y, z = np.mgrid[
-        grid_min[0]:grid_max[0]:nx * 1j,
-        grid_min[1]:grid_max[1]:ny * 1j,
-        grid_min[2]:grid_max[2]:nz * 1j
+        grid_min[0] : grid_max[0] : nx * 1j,
+        grid_min[1] : grid_max[1] : ny * 1j,
+        grid_min[2] : grid_max[2] : nz * 1j,
     ]
 
     # Reshape grid points for query
     pts = np.vstack([x.ravel(), y.ravel(), z.ravel()]).T
+
+    if progress_callback:
+        progress_callback(25, f"Testing volume containment ({len(pts):,} points)...")
 
     # Evaluate interior containment using trimesh ray containment with PyVista fallback
     try:
@@ -66,17 +84,31 @@ def convert_stl_to_gyroid(stl_mesh: trimesh.Trimesh, params: STLConversionParams
         enclosed = pts_cloud.select_enclosed_points(pv_stl, tolerance=1e-5)
         inside_mask = enclosed["SelectedPoints"].astype(bool)
 
+    if progress_callback:
+        progress_callback(50, "Evaluating 3D gyroid scalar field...")
+
     # Gyroid 3D scalar equation: sin(kx*x)*cos(ky*y) + sin(ky*y)*cos(kz*z) + sin(kz*z)*cos(kx*x)
     k = 2.0 * np.pi / max(params.cell_size, 0.001)
     gyroid_val = (
-        np.sin(k * x) * np.cos(k * y) +
-        np.sin(k * y) * np.cos(k * z) +
-        np.sin(k * z) * np.cos(k * x)
+        np.sin(k * x) * np.cos(k * y)
+        + np.sin(k * y) * np.cos(k * z)
+        + np.sin(k * z) * np.cos(k * x)
     )
 
-    # Thickness threshold calibrated to physical Euclidean thickness:
-    # Scaling by 5.0 accounts for the steep spatial gradient of the gyroid trigonometric field (||grad G|| ≈ 1.53 * 2*pi/L ≈ 9.6/L).
-    t = np.clip(5.0 * params.wall_thickness / params.cell_size, 0.05, 1.5)
+    if params.is_skeletal:
+        # Skeletal strut network: single continuous void channel for resin draining.
+        # Strut thickness is modulated by shifting the isovalue threshold around nominal 50% porosity.
+        r = params.wall_thickness / max(params.cell_size, 0.001)
+        thresh = np.clip(3.0 * (r - 0.2), -1.1, 1.1)
+        void_scalar = thresh - gyroid_val
+        field = gyroid_val - thresh
+    else:
+        # Sheet gyroid: two intertwined void channels separated by continuous walls.
+        # Thickness threshold calibrated to physical Euclidean thickness:
+        # Scaling by 5.0 accounts for the steep spatial gradient of the gyroid trigonometric field (||grad G|| ≈ 1.53 * 2*pi/L ≈ 9.6/L).
+        t = np.clip(5.0 * params.wall_thickness / params.cell_size, 0.05, 1.5)
+        void_scalar = t - np.abs(gyroid_val)
+        field = np.abs(gyroid_val) - t
 
     # Mask out points outside the STL geometry
     inside_3d = inside_mask.reshape(x.shape)
@@ -85,20 +117,30 @@ def convert_stl_to_gyroid(stl_mesh: trimesh.Trimesh, params: STLConversionParams
     # Instead of voxelizing the outer boundary, we compute the internal gyroid voids
     # (receded by shell_thickness from the boundary) and subtract them from the exact original STL mesh.
     if params.preserve_shell and params.shell_thickness > 0:
+        if progress_callback:
+            progress_callback(65, "Computing shell distance transform...")
+
         dx = grid_extent[0] / max(nx - 1, 1)
         dy = grid_extent[1] / max(ny - 1, 1)
         dz = grid_extent[2] / max(nz - 1, 1)
         dist_inside = ndi.distance_transform_edt(inside_3d, sampling=(dx, dy, dz))
 
-        # Void exists only where dist_inside > shell_thickness AND |gyroid_val| > t.
-        field_void = np.maximum(params.shell_thickness - dist_inside, t - np.abs(gyroid_val))
+        # Void exists only where dist_inside > shell_thickness AND pore condition met.
+        field_void = np.maximum(
+            params.shell_thickness - dist_inside, void_scalar
+        )
+
+        if progress_callback:
+            progress_callback(75, "Extracting internal void isosurface...")
 
         grid = pv.StructuredGrid(x, y, z)
-        grid["vol"] = field_void.ravel('F')
+        grid["vol"] = field_void.ravel("F")
         void_mesh = grid.contour([0])
 
         # If no internal void formed (e.g. wall thickness encompasses the entire volume)
         if void_mesh.n_points == 0 or void_mesh.n_cells == 0:
+            if progress_callback:
+                progress_callback(95, "Finalizing mesh...")
             return pv.wrap(stl_mesh)
 
         faces = void_mesh.faces.reshape((-1, 4))[:, 1:]
@@ -113,40 +155,55 @@ def convert_stl_to_gyroid(stl_mesh: trimesh.Trimesh, params: STLConversionParams
         # Robust boolean subtraction: outer STL minus internal gyroid void.
         # Keeps original CAD surface triangles intact while skipping redundant Python validation.
         import manifold3d
+
+        if progress_callback:
+            progress_callback(85, "Performing manifold boolean subtraction...")
+
         m_outer = manifold3d.Manifold(
             manifold3d.Mesh(
                 vert_properties=np.asarray(clean_stl.vertices, dtype=np.float32),
-                tri_verts=np.asarray(clean_stl.faces, dtype=np.uint32)
+                tri_verts=np.asarray(clean_stl.faces, dtype=np.uint32),
             )
         )
         m_void = manifold3d.Manifold(
             manifold3d.Mesh(
                 vert_properties=np.asarray(void_mesh.points, dtype=np.float32),
-                tri_verts=np.asarray(faces, dtype=np.uint32)
+                tri_verts=np.asarray(faces, dtype=np.uint32),
             )
         )
         diff = m_outer - m_void
         res_mesh = diff.to_mesh()
         tri_result = trimesh.Trimesh(
-            vertices=res_mesh.vert_properties,
-            faces=res_mesh.tri_verts,
-            process=False
+            vertices=res_mesh.vert_properties, faces=res_mesh.tri_verts, process=False
         )
+
+        if progress_callback:
+            progress_callback(95, "Wrapping final mesh...")
+
         return pv.wrap(tri_result)
 
     # No shell preservation: gyroid infill throughout the volume
-    field = np.abs(gyroid_val) - t
-    field[~inside_3d] = 1.0  # Set outside points high so isosurface doesn't form outside boundary
+    if progress_callback:
+        progress_callback(75, "Extracting gyroid isosurface contour...")
+
+    field[~inside_3d] = (
+        1.0  # Set outside points high so isosurface doesn't form outside boundary
+    )
 
     # Construct PyVista grid and contour isosurface at 0
     grid = pv.StructuredGrid(x, y, z)
-    grid["vol"] = field.ravel('F')
+    grid["vol"] = field.ravel("F")
     mesh = grid.contour([0])
+
+    if progress_callback:
+        progress_callback(95, "Finalizing mesh...")
 
     return mesh
 
 
-def prepare_for_printing(mesh: pv.PolyData | trimesh.Trimesh, flat_cap: bool = False) -> trimesh.Trimesh:
+def prepare_for_printing(
+    mesh: pv.PolyData | trimesh.Trimesh, flat_cap: bool = False
+) -> trimesh.Trimesh:
     """Ensure generated mesh is manifold/watertight for 3D printing."""
     if isinstance(mesh, pv.PolyData):
         faces = mesh.faces.reshape((-1, 4))[:, 1:]
@@ -160,8 +217,18 @@ def prepare_for_printing(mesh: pv.PolyData | trimesh.Trimesh, flat_cap: bool = F
         margin = (z_max - z_min) * 0.01
         if margin > 0.001:
             try:
-                tri = trimesh.intersections.slice_mesh_plane(tri, plane_normal=[0, 0, -1], plane_origin=[0, 0, z_max - margin], cap=True)
-                tri = trimesh.intersections.slice_mesh_plane(tri, plane_normal=[0, 0, 1], plane_origin=[0, 0, z_min + margin], cap=True)
+                tri = trimesh.intersections.slice_mesh_plane(
+                    tri,
+                    plane_normal=[0, 0, -1],
+                    plane_origin=[0, 0, z_max - margin],
+                    cap=True,
+                )
+                tri = trimesh.intersections.slice_mesh_plane(
+                    tri,
+                    plane_normal=[0, 0, 1],
+                    plane_origin=[0, 0, z_min + margin],
+                    cap=True,
+                )
             except Exception:
                 pass
 
@@ -174,7 +241,9 @@ def prepare_for_printing(mesh: pv.PolyData | trimesh.Trimesh, flat_cap: bool = F
     return tri
 
 
-def render_offscreen(mesh: pv.PolyData, output_image_path: str, window_size: tuple[int, int] = (800, 600)):
+def render_offscreen(
+    mesh: pv.PolyData, output_image_path: str, window_size: tuple[int, int] = (800, 600)
+):
     """Render a thumbnail image of the mesh headlessly."""
     plotter = pv.Plotter(off_screen=True)
     plotter.add_mesh(mesh, color="lightblue", show_edges=True)

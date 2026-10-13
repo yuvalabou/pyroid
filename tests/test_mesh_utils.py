@@ -1,3 +1,4 @@
+"""Unit tests for mesh processing utilities and STL infill conversion."""
 import os
 import tempfile
 import pytest
@@ -115,4 +116,77 @@ def test_stl_gyroid_calibrated_wall_thickness():
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+def test_stl_gyroid_progress_callback():
+    cube = trimesh.creation.box(extents=[10, 10, 10])
+    with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as tmp:
+        cube.export(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        tri_mesh, _ = load_stl(tmp_path)
+        params = STLConversionParams(
+            stl_path=tmp_path,
+            resolution=30,
+            cell_size=5.0,
+            wall_thickness=0.8
+        )
+        updates = []
+        def callback(pct, msg):
+            updates.append((pct, msg))
+
+        convert_stl_to_gyroid(tri_mesh, params, progress_callback=callback)
+
+        assert len(updates) >= 4
+        percentages = [u[0] for u in updates]
+        assert percentages == sorted(percentages)
+        assert all(0 <= p <= 100 for p in percentages)
+        assert any("containment" in u[1].lower() for u in updates)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def test_stl_gyroid_skeletal_conversion():
+    cube = trimesh.creation.box(extents=[10, 10, 10])
+    with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as tmp:
+        cube.export(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        tri_mesh, _ = load_stl(tmp_path)
+        params_sheet = STLConversionParams(
+            stl_path=tmp_path, resolution=30, cell_size=5.0, wall_thickness=0.8, is_skeletal=False
+        )
+        params_skeletal = STLConversionParams(
+            stl_path=tmp_path, resolution=30, cell_size=5.0, wall_thickness=0.8, is_skeletal=True
+        )
+
+        mesh_sheet = convert_stl_to_gyroid(tri_mesh, params_sheet)
+        mesh_skeletal = convert_stl_to_gyroid(tri_mesh, params_skeletal)
+
+        assert mesh_skeletal.n_points > 0
+        assert mesh_skeletal.n_cells > 0
+        # Skeletal gyroid uses single-boundary strut network, generating fewer faces than dual-walled sheet
+        assert mesh_skeletal.n_cells < mesh_sheet.n_cells
+
+        # Test with shell preservation as well
+        params_skeletal_shell = STLConversionParams(
+            stl_path=tmp_path,
+            resolution=30,
+            cell_size=5.0,
+            wall_thickness=0.8,
+            preserve_shell=True,
+            shell_thickness=0.8,
+            is_skeletal=True,
+        )
+        mesh_shell = convert_stl_to_gyroid(tri_mesh, params_skeletal_shell)
+        assert mesh_shell.n_points > 0
+        assert mesh_shell.n_cells > 0
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 

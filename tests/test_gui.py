@@ -1,3 +1,4 @@
+"""Tests for PyRoid PyQt5 graphical user interface and interaction."""
 import os
 import json
 import pytest

@@ -8,6 +8,7 @@ A powerful, high-performance Python application and library for generating, visu
 
 - **Interactive GUI**: Intuitive dual-mode graphical interface (Parametric Gyroid & STL Volume Infill) with real-time PyVista 3D viewport.
 - **STL Volume Gyroidization**: Import any closed 3D STL model and convert its internal volume into a porous gyroid lattice structure.
+- **Skeletal & Sheet Lattice Modes**: Toggle between wall-based sheet gyroids and strut-based skeletal gyroids (single continuous void channel, ideal for SLA/resin draining).
 - **Command Line Interface (`pyroid-cli`)**: Scriptable CLI supporting parametric generation, STL conversion, preset loading, offscreen rendering, and mesh stats.
 - **Powered by `uv`**: Ultra-fast dependency resolution, environment isolation, and project execution using `uv`.
 - **Type-Safe Data Models**: Powered by strongly-typed `GyroidParams` and `STLConversionParams` dataclasses.
@@ -70,7 +71,12 @@ uv run pyroid-cli --input-stl model.stl --output gyroid_model.stl --cell-size 5.
 uv run pyroid-cli --input-stl model.stl --output gyroid_shelled.stl --cell-size 5.0 --wall-thickness 0.5 --preserve-shell --shell-thickness 1.5
 ```
 
-#### 4. Offscreen Thumbnail Rendering & Stats
+#### 4. Convert STL to Skeletal Lattice (Single Continuous Void for Resin Draining)
+```bash
+uv run pyroid-cli --input-stl model.stl --output gyroid_skeletal.stl --cell-size 5.0 --skeletal
+```
+
+#### 5. Offscreen Thumbnail Rendering & Stats
 ```bash
 uv run pyroid-cli --input-stl input.stl --output out.stl --render screenshot.png --print-stats
 ```

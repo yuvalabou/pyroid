@@ -1,3 +1,4 @@
+"""Unit tests for PyRoid core generation engine and parameters."""
 import pytest
 import pyvista as pv
 from pyroid.core import GyroidGenerator
@@ -50,3 +51,22 @@ def test_mesh_statistics():
     assert "volume" in stats
     assert "surface_area" in stats
     assert stats["n_points"] > 0
+
+
+def test_gyroid_generation_progress_callback():
+    updates = []
+    def callback(percent, msg):
+        updates.append((percent, msg))
+
+    params = GyroidParams(res=20)
+    generator = GyroidGenerator(params)
+    generator.generate(progress_callback=callback)
+
+    assert len(updates) >= 4
+    # Ensure percentages are monotonically increasing and within 0..100
+    percentages = [u[0] for u in updates]
+    assert percentages == sorted(percentages)
+    assert all(0 <= p <= 100 for p in percentages)
+    assert any("grid" in u[1].lower() for u in updates)
+    assert any("isosurface" in u[1].lower() for u in updates)
+

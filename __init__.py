@@ -1,1 +1,1 @@
-# This file marks the directory as a Python package.
+"""PyRoid - a Python library for generating gyroid lattice structures from 3D meshes."""
