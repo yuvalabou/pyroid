@@ -4,7 +4,6 @@ Contains GyroidGenerator for computing parametric gyroid surfaces in cylindrical
 coordinates and coordinating STL mesh infill conversions.
 """
 from collections.abc import Callable
-from dataclasses import fields
 from typing import Any
 
 import numpy as np
@@ -36,8 +35,6 @@ class GyroidGenerator:
             self.params = GyroidParams()
 
         self.mesh: pv.PolyData | None = None
-        self.cavity_a: pv.PolyData | None = None
-        self.cavity_b: pv.PolyData | None = None
 
     def validate_params(self) -> tuple[bool, str]:
         """Validate parameters using the GyroidParams data model."""
@@ -66,7 +63,7 @@ class GyroidGenerator:
             progress_callback(10, f"Initializing cylindrical grid (res={res})...")
 
         # Generate cylindrical/radial grid domain
-        ky = 2.0 * np.pi / p.b
+        kx, ky, kz = [2.0 * np.pi / getattr(p, dim) for dim in ("a", "b", "c")]
         r_aux, phi, z = np.mgrid[
             0 : p.a : res * 1j, 0 : p.b : res * 1j, 0 : p.c : res * 1j
         ]
@@ -82,15 +79,15 @@ class GyroidGenerator:
         scale_z = 2.0 * np.pi * p.cell_height / p.c
 
         phi_scaled = phi * p.phi_scale
-        raw_g = (
+        fun_values = (
             np.cos(r_aux * scale_x) * np.sin(phi_scaled * scale_y)
             + np.cos(phi_scaled * scale_y) * np.sin(z * scale_z)
             + np.cos(z * scale_z) * np.sin(r_aux * scale_x)
-        ) + p.bias
+        )
 
         # Apply radial mask
         mask = (r >= (p.r1 - p.wall_thickness)) & (r <= p.r1)
-        fun_values = np.where(mask, raw_g, 1.0)
+        fun_values[~mask] = 1.0
 
         if progress_callback:
             progress_callback(60, "Transforming coordinates to Cartesian...")
@@ -102,15 +99,10 @@ class GyroidGenerator:
         if progress_callback:
             progress_callback(80, "Extracting isosurface contour...")
 
-        # Build PyVista StructuredGrid and extract isosurface + dual cavities
+        # Build PyVista StructuredGrid and extract isosurface
         grid = pv.StructuredGrid(x, y, z)
         grid["vol"] = fun_values.ravel("F")
         self.mesh = grid.contour([0])
-        t_sheet = 0.2
-        grid["vol"] = np.where(mask, t_sheet - raw_g, 1.0).ravel("F")
-        self.cavity_a = grid.contour([0])
-        grid["vol"] = np.where(mask, raw_g + t_sheet, 1.0).ravel("F")
-        self.cavity_b = grid.contour([0])
 
         if progress_callback:
             progress_callback(95, "Finalizing mesh...")
@@ -143,8 +135,6 @@ class GyroidGenerator:
         self.mesh = convert_stl_to_gyroid(
             tri_mesh, stl_params, progress_callback=progress_callback
         )
-        self.cavity_a = getattr(self.mesh, "cavity_a", None)
-        self.cavity_b = getattr(self.mesh, "cavity_b", None)
         return self.mesh
 
     def save_stl(
@@ -191,8 +181,19 @@ class GyroidGenerator:
 
     @classmethod
     def get_param_descriptions(cls) -> dict[str, str]:
-        """Return parameter descriptions derived from model metadata."""
-        return {f.name: str(f.metadata.get("help", "")) for f in fields(GyroidParams)}
+        """Return parameter descriptions."""
+        return {
+            "res": "Resolution of the grid in each dimension.",
+            "a": "Dimension length along X-axis.",
+            "b": "Dimension length along Y-axis.",
+            "c": "Dimension length along Z-axis.",
+            "r1": "Inner radius of gyroid structure (central void).",
+            "r2": "Outer radius of gyroid structure.",
+            "phi_scale": "Angular scaling factor (twists).",
+            "wall_thickness": "Wall thickness of gyroid.",
+            "cell_radius": "Cell pore radius.",
+            "cell_height": "Cell vertical height.",
+        }
 
     @classmethod
     def get_presets(cls) -> dict[str, dict[str, Any]]:
@@ -210,7 +211,6 @@ class GyroidGenerator:
                 "wall_thickness": 11.5,
                 "cell_radius": 1.5,
                 "cell_height": 2.5,
-                "bias": 0.0,
             },
             "thick_walls": {
                 "res": 80,
@@ -223,7 +223,6 @@ class GyroidGenerator:
                 "wall_thickness": 15.0,
                 "cell_radius": 2,
                 "cell_height": 3,
-                "bias": 0.0,
             },
             "dense_pattern": {
                 "res": 100,
@@ -236,6 +235,5 @@ class GyroidGenerator:
                 "wall_thickness": 11.5,
                 "cell_radius": 1.2,
                 "cell_height": 1.8,
-                "bias": 0.0,
             },
         }
