@@ -98,12 +98,10 @@ class GyroidGeneratorGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.generator: GyroidGenerator | None = None
-        self.config_file = os.path.join(os.path.expanduser("~"), ".pyroid_config.json")
         self.current_preset = "default"
         self._gen_start_time = 0.0
 
         self.init_ui()
-        self.load_config()
         self.apply_preset(self.current_preset)
 
     def init_ui(self):
@@ -184,6 +182,7 @@ class GyroidGeneratorGUI(QMainWindow):
             "wall_thickness": "Wall Thickness",
             "cell_radius": "Cell Radius",
             "cell_height": "Cell Height",
+            "bias": "Cavity A/B Bias (-1..1)",
         }
         for k, label in param_labels.items():
             row = QHBoxLayout()
@@ -229,11 +228,17 @@ class GyroidGeneratorGUI(QMainWindow):
         res_row.addWidget(self.stl_res_edit)
         stl_params_layout.addLayout(res_row)
 
-        # Cell Size
+        # Cell Size (X / Y / Z)
         cell_row = QHBoxLayout()
-        cell_row.addWidget(QLabel("Cell Size (mm):"))
+        cell_row.addWidget(QLabel("Cell Size X/Y/Z (mm):"))
         self.stl_cell_edit = QLineEdit("5.0")
+        self.stl_cell_y_edit = QLineEdit("0.0")
+        self.stl_cell_y_edit.setToolTip("Y cell size in mm (0 = match X)")
+        self.stl_cell_z_edit = QLineEdit("0.0")
+        self.stl_cell_z_edit.setToolTip("Z cell size in mm (0 = match X)")
         cell_row.addWidget(self.stl_cell_edit)
+        cell_row.addWidget(self.stl_cell_y_edit)
+        cell_row.addWidget(self.stl_cell_z_edit)
         stl_params_layout.addLayout(cell_row)
 
         # Wall Thickness
@@ -242,6 +247,16 @@ class GyroidGeneratorGUI(QMainWindow):
         self.stl_wall_edit = QLineEdit("0.8")
         wall_row.addWidget(self.stl_wall_edit)
         stl_params_layout.addLayout(wall_row)
+
+        # Asymmetric Cavity Bias
+        bias_row = QHBoxLayout()
+        bias_row.addWidget(QLabel("Cavity A/B Bias (-1..1):"))
+        self.stl_bias_edit = QLineEdit("0.0")
+        self.stl_bias_edit.setToolTip(
+            "Shift dividing wall: >0 widens Cavity A (Red), <0 widens Cavity B (Blue)"
+        )
+        bias_row.addWidget(self.stl_bias_edit)
+        stl_params_layout.addLayout(bias_row)
 
         # Skeletal Mode Checkbox
         self.stl_skeletal_check = QCheckBox(
@@ -299,6 +314,20 @@ class GyroidGeneratorGUI(QMainWindow):
         # View Options Section
         view_box = QGroupBox("View Options")
         view_layout = QVBoxLayout(view_box)
+        self.show_wall_check = QCheckBox("Show Solid Wall")
+        self.show_wall_check.setChecked(True)
+        self.show_wall_check.toggled.connect(self.on_view_mode_changed)
+        view_layout.addWidget(self.show_wall_check)
+
+        cav_row = QHBoxLayout()
+        self.show_cav_a_check = QCheckBox("Cavity A (Red)")
+        self.show_cav_a_check.toggled.connect(self.on_view_mode_changed)
+        self.show_cav_b_check = QCheckBox("Cavity B (Blue)")
+        self.show_cav_b_check.toggled.connect(self.on_view_mode_changed)
+        cav_row.addWidget(self.show_cav_a_check)
+        cav_row.addWidget(self.show_cav_b_check)
+        view_layout.addLayout(cav_row)
+
         self.cutaway_check = QCheckBox("Show Cross-Section (Cutaway)")
         self.cutaway_check.setToolTip(
             "Slice mesh along X-axis to inspect internal gyroid infill"
@@ -545,7 +574,10 @@ class GyroidGeneratorGUI(QMainWindow):
         try:
             res = int(self.stl_res_edit.text())
             cell_size = float(self.stl_cell_edit.text())
+            cell_size_y = float(self.stl_cell_y_edit.text() or 0.0)
+            cell_size_z = float(self.stl_cell_z_edit.text() or 0.0)
             wall_thick = float(self.stl_wall_edit.text())
+            bias = float(self.stl_bias_edit.text() or 0.0)
             flat_cap = self.stl_cap_check.isChecked()
             preserve_shell = self.stl_shell_check.isChecked()
             shell_thick = float(self.stl_shell_edit.text()) if preserve_shell else 1.0
@@ -555,7 +587,10 @@ class GyroidGeneratorGUI(QMainWindow):
                 stl_path=stl_path,
                 resolution=res,
                 cell_size=cell_size,
+                cell_size_y=cell_size_y,
+                cell_size_z=cell_size_z,
                 wall_thickness=wall_thick,
+                bias=bias,
                 flat_cap=flat_cap,
                 preserve_shell=preserve_shell,
                 shell_thickness=shell_thick,
@@ -585,6 +620,14 @@ class GyroidGeneratorGUI(QMainWindow):
         if self.generator and self.generator.mesh:
             self.render_current_mesh()
 
+    def _clip_if_enabled(self, mesh, origin):
+        if not self.cutaway_check.isChecked() or mesh is None or mesh.n_points == 0:
+            return mesh
+        try:
+            return mesh.clip(normal="x", origin=origin)
+        except Exception:
+            return mesh
+
     def render_current_mesh(self):
         self.plotter.clear()
         if self.generator is None or self.generator.mesh is None:
@@ -598,17 +641,29 @@ class GyroidGeneratorGUI(QMainWindow):
             )
             return
 
-        mesh_to_show = self.generator.mesh
-        if self.cutaway_check.isChecked():
-            try:
-                mesh_to_show = mesh_to_show.clip(normal="x", origin=mesh_to_show.center)
-            except Exception:
-                mesh_to_show = self.generator.mesh
+        origin = self.generator.mesh.center
+        show_cavs = self.show_cav_a_check.isChecked() or self.show_cav_b_check.isChecked()
 
-        if mesh_to_show.n_points > 0:
-            self.plotter.add_mesh(
-                mesh_to_show, scalars=mesh_to_show.points[:, -1], show_scalar_bar=False
-            )
+        if self.show_wall_check.isChecked():
+            wall = self._clip_if_enabled(self.generator.mesh, origin)
+            if wall is not None and wall.n_points > 0:
+                if show_cavs:
+                    self.plotter.add_mesh(wall, color="#cccccc", opacity=0.25)
+                else:
+                    self.plotter.add_mesh(
+                        wall, scalars=wall.points[:, -1], show_scalar_bar=False
+                    )
+
+        if self.show_cav_a_check.isChecked() and self.generator.cavity_a is not None:
+            cav_a = self._clip_if_enabled(self.generator.cavity_a, origin)
+            if cav_a is not None and cav_a.n_points > 0:
+                self.plotter.add_mesh(cav_a, color="#e74c3c", opacity=0.85)
+
+        if self.show_cav_b_check.isChecked() and self.generator.cavity_b is not None:
+            cav_b = self._clip_if_enabled(self.generator.cavity_b, origin)
+            if cav_b is not None and cav_b.n_points > 0:
+                self.plotter.add_mesh(cav_b, color="#3498db", opacity=0.85)
+
         self.plotter.add_bounding_box()
         self.plotter.show_axes()
         self.plotter.reset_camera()
@@ -674,6 +729,9 @@ class GyroidGeneratorGUI(QMainWindow):
         self.stats_box.setVisible(False)
         self.apply_preset("default")
         self.stl_shell_check.setChecked(False)
+        self.show_wall_check.setChecked(True)
+        self.show_cav_a_check.setChecked(False)
+        self.show_cav_b_check.setChecked(False)
         self.cutaway_check.setChecked(False)
         self.plotter.clear()
         self.statusBar.showMessage("New project started")
@@ -683,12 +741,6 @@ class GyroidGeneratorGUI(QMainWindow):
             self.setStyleSheet(qdarkstyle.load_stylesheet_pyqt5())
         else:
             self.setStyleSheet("")
-
-    def save_config(self):
-        pass
-
-    def load_config(self):
-        pass
 
 
 def main():
