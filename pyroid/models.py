@@ -11,25 +11,29 @@ from typing import Any, Self
 class GyroidParams:
     """Parameters for generating radially symmetrical gyroid structures."""
 
-    res: int = field(default=80, metadata={"help": "Grid resolution in each dimension"})
-    a: float = field(default=24.0, metadata={"help": "Dimension length along X-axis"})
-    b: float = field(default=24.0, metadata={"help": "Dimension length along Y-axis"})
-    c: float = field(default=10.0, metadata={"help": "Dimension length along Z-axis"})
+    res: int = field(default=80, metadata={"help": "Grid resolution in each dimension (higher = smoother mesh, slower generation)"})
+    a: float = field(default=24.0, metadata={"help": "Radial domain length along X-axis"})
+    b: float = field(default=24.0, metadata={"help": "Angular domain length along Y-axis"})
+    c: float = field(default=10.0, metadata={"help": "Vertical height along Z-axis"})
     r1: float = field(
-        default=12.0, metadata={"help": "Inner radius (central void size)"}
+        default=12.0, metadata={"help": "Outer cylinder radius"}
     )
-    r2: float = field(default=0.0, metadata={"help": "Outer radius"})
+    r2: float = field(default=0.0, metadata={"help": "Inner core radius (0 = solid center)"})
     phi_scale: float = field(
-        default=8.0, metadata={"help": "Angular coordinate scaling factor (twists)"}
+        default=8.0, metadata={"help": "Angular coordinate scaling factor (number of radial twists)"}
     )
     wall_thickness: float = field(
-        default=11.5, metadata={"help": "Wall thickness threshold"}
+        default=11.5, metadata={"help": "Radial annular ring thickness (from r1 inward)"}
     )
     cell_radius: float = field(
-        default=2.0, metadata={"help": "Gyroid cell pore radius"}
+        default=2.0, metadata={"help": "Gyroid unit cell radial/angular pore frequency"}
     )
     cell_height: float = field(
-        default=3.0, metadata={"help": "Gyroid cell vertical height"}
+        default=3.0, metadata={"help": "Gyroid unit cell vertical pore frequency"}
+    )
+    bias: float = field(
+        default=0.0,
+        metadata={"help": "Asymmetric cavity balance (-1.0 to 1.0): >0 widens Cavity A (Red), <0 widens Cavity B (Blue)"},
     )
 
     def validate(self) -> tuple[bool, str]:
@@ -44,22 +48,16 @@ class GyroidParams:
             return False, "Wall thickness must be positive"
         if self.cell_radius <= 0 or self.cell_height <= 0:
             return False, "Cell radius and height must be positive"
+        if not (-1.4 <= self.bias <= 1.4):
+            return False, "Bias must be between -1.4 and 1.4"
         return True, ""
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert dataclass to dictionary."""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        """Instantiate GyroidParams from dictionary, filtering unknown fields."""
-        valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
-        filtered = {
-            k: (int(v) if k == "res" else float(v))
-            for k, v in data.items()
-            if k in valid_keys
-        }
-        return cls(**filtered)
+        return cls(**{k: (int(v) if k == "res" else float(v)) for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
 @dataclass(slots=True)
@@ -71,11 +69,23 @@ class STLConversionParams:
         default=80, metadata={"help": "Voxel grid resolution along max dimension"}
     )
     cell_size: float = field(
-        default=5.0, metadata={"help": "Gyroid unit cell size (mm or model units)"}
+        default=5.0, metadata={"help": "Gyroid unit cell size X (mm or model units)"}
+    )
+    cell_size_y: float = field(
+        default=0.0,
+        metadata={"help": "Gyroid unit cell size Y (0 = same as cell_size)"},
+    )
+    cell_size_z: float = field(
+        default=0.0,
+        metadata={"help": "Gyroid unit cell size Z (0 = same as cell_size)"},
     )
     wall_thickness: float = field(
         default=0.8,
         metadata={"help": "Thickness of the gyroid lattice walls (in model units/mm)"},
+    )
+    bias: float = field(
+        default=0.0,
+        metadata={"help": "Cavity A/B volume balance offset (-1.0 to 1.0)"},
     )
     flat_cap: bool = field(
         default=False,
@@ -101,10 +111,12 @@ class STLConversionParams:
             return False, "Input STL path must be specified"
         if self.resolution <= 10:
             return False, "Resolution must be at least 10"
-        if self.cell_size <= 0:
+        if self.cell_size <= 0 or self.cell_size_y < 0 or self.cell_size_z < 0:
             return False, "Cell size must be positive"
         if self.wall_thickness <= 0:
             return False, "Wall thickness must be positive"
+        if not (-1.4 <= self.bias <= 1.4):
+            return False, "Bias must be between -1.4 and 1.4"
         if self.preserve_shell and self.shell_thickness <= 0:
             return (
                 False,
