@@ -6,11 +6,19 @@ and volumetric STL lattice infill conversion (STLConversionParams).
 from dataclasses import asdict, dataclass, field
 from typing import Any, Self
 
+from pyroid.tpms import TPMSType
+
 
 @dataclass(slots=True)
 class GyroidParams:
     """Parameters for generating radially symmetrical gyroid structures."""
 
+    tpms_type: str = field(
+        default="gyroid",
+        metadata={
+            "help": "TPMS geometry: gyroid, diamond, primitive, i_wp, fischer_koch_s, neovius"
+        },
+    )
     res: int = field(default=80, metadata={"help": "Grid resolution in each dimension (higher = smoother mesh, slower generation)"})
     a: float = field(default=24.0, metadata={"help": "Radial domain length along X-axis"})
     b: float = field(default=24.0, metadata={"help": "Angular domain length along Y-axis"})
@@ -38,6 +46,10 @@ class GyroidParams:
 
     def validate(self) -> tuple[bool, str]:
         """Validate parameter values for mathematical correctness."""
+        try:
+            TPMSType.from_str(self.tpms_type)
+        except ValueError as e:
+            return False, str(e)
         if not isinstance(self.res, int) or self.res <= 0:
             return False, "Resolution must be a positive integer"
         if self.a <= 0 or self.b <= 0 or self.c <= 0:
@@ -57,23 +69,39 @@ class GyroidParams:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        return cls(**{k: (int(v) if k == "res" else float(v)) for k, v in data.items() if k in cls.__dataclass_fields__})
+        clean = {}
+        for k, v in data.items():
+            if k not in cls.__dataclass_fields__:
+                continue
+            if k == "tpms_type":
+                clean[k] = str(v)
+            elif k == "res":
+                clean[k] = int(v)
+            else:
+                clean[k] = float(v)
+        return cls(**clean)
 
 
 @dataclass(slots=True)
 class STLConversionParams:
-    """Parameters for converting an external STL file's volume into a gyroid lattice."""
+    """Parameters for converting an external STL file's volume into a gyroid or TPMS lattice."""
 
     stl_path: str = field(metadata={"help": "Path to input STL file"})
+    tpms_type: str = field(
+        default="gyroid",
+        metadata={
+            "help": "TPMS geometry: gyroid, diamond, primitive, i_wp, fischer_koch_s, neovius"
+        },
+    )
     resolution: int = field(
         default=80, metadata={"help": "Voxel grid resolution along max dimension"}
     )
     cell_size: float = field(
-        default=5.0, metadata={"help": "Gyroid unit cell size (mm or model units)"}
+        default=5.0, metadata={"help": "TPMS unit cell size (mm or model units)"}
     )
     wall_thickness: float = field(
         default=0.8,
-        metadata={"help": "Thickness of the gyroid lattice walls (in model units/mm)"},
+        metadata={"help": "Thickness of the TPMS lattice walls (in model units/mm)"},
     )
     bias: float = field(
         default=0.0,
@@ -103,8 +131,24 @@ class STLConversionParams:
     )
 
     @staticmethod
+    def _tpms_surface_factor(tpms_type: str = "gyroid") -> float:
+        cleaned = tpms_type.lower().replace("-", "_")
+        factors = {
+            "gyroid": 318.3,
+            "diamond": 384.0,
+            "primitive": 235.0,
+            "i_wp": 358.0,
+            "fischer_koch_s": 396.0,
+            "neovius": 512.0,
+        }
+        return factors.get(cleaned, 318.3)
+
+    @staticmethod
     def estimate_infill(
-        cell_size: float, wall_thickness: float, is_skeletal: bool = False
+        cell_size: float,
+        wall_thickness: float,
+        is_skeletal: bool = False,
+        tpms_type: str = "gyroid",
     ) -> float:
         """Estimate solid infill percentage from cell size and wall thickness."""
         if cell_size <= 0 or wall_thickness <= 0:
@@ -112,11 +156,15 @@ class STLConversionParams:
         ratio = wall_thickness / cell_size
         if is_skeletal:
             return float(min(95.0, max(5.0, 50.0 + 95.5 * (ratio - 0.2))))
-        return float(min(95.0, max(5.0, 318.3 * ratio)))
+        factor = STLConversionParams._tpms_surface_factor(tpms_type)
+        return float(min(95.0, max(5.0, factor * ratio)))
 
     @staticmethod
     def estimate_cell_size(
-        infill_percent: float, wall_thickness: float, is_skeletal: bool = False
+        infill_percent: float,
+        wall_thickness: float,
+        is_skeletal: bool = False,
+        tpms_type: str = "gyroid",
     ) -> float:
         """Estimate required cell size (mm) to achieve target infill % at given wall thickness."""
         pct = min(95.0, max(5.0, infill_percent))
@@ -125,11 +173,16 @@ class STLConversionParams:
         if is_skeletal:
             ratio = max(0.05, 0.2 + (pct - 50.0) / 95.5)
             return float(wall_thickness / ratio)
-        return float(318.3 * wall_thickness / pct)
+        factor = STLConversionParams._tpms_surface_factor(tpms_type)
+        return float(factor * wall_thickness / pct)
 
     def validate(self) -> tuple[bool, str]:
         if not self.stl_path:
             return False, "Input STL path must be specified"
+        try:
+            TPMSType.from_str(self.tpms_type)
+        except ValueError as e:
+            return False, str(e)
         if self.resolution <= 10:
             return False, "Resolution must be at least 10"
         if self.cell_size <= 0:

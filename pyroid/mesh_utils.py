@@ -12,6 +12,7 @@ import scipy.ndimage as ndi
 import trimesh
 
 from pyroid.models import STLConversionParams
+from pyroid.tpms import get_tpms_kernel
 
 
 def load_stl(filepath: str) -> tuple[trimesh.Trimesh, pv.PolyData]:
@@ -84,16 +85,13 @@ def convert_stl_to_gyroid(
         enclosed = pts_cloud.select_enclosed_points(pv_stl, tolerance=1e-5)
         inside_mask = enclosed["SelectedPoints"].astype(bool)
 
+    kernel = get_tpms_kernel(params.tpms_type)
     if progress_callback:
-        progress_callback(50, "Evaluating 3D gyroid scalar field...")
+        progress_callback(50, f"Evaluating 3D {kernel.display_name} scalar field...")
 
-    # Gyroid 3D scalar equation: sin(kx*x)*cos(ky*y) + sin(ky*y)*cos(kz*z) + sin(kz*z)*cos(kx*x)
+    # TPMS 3D scalar equation evaluated on periodic wave grid
     k = 2.0 * np.pi / max(params.cell_size, 0.001)
-    gyroid_val = (
-        np.sin(k * x) * np.cos(k * y)
-        + np.sin(k * y) * np.cos(k * z)
-        + np.sin(k * z) * np.cos(k * x)
-    ) + params.bias
+    scalar_val = kernel.eval(k * x, k * y, k * z) + params.bias
 
     # Mask out points outside the STL geometry
     inside_3d = inside_mask.reshape(x.shape)
@@ -103,37 +101,36 @@ def convert_stl_to_gyroid(
         else None
     )
 
+    t_norm = kernel.thickness_multiplier / 4.80
     t = (
-        float(np.quantile(np.abs(gyroid_val[inside_3d]), q))
+        float(np.quantile(np.abs(scalar_val[inside_3d]), q))
         if (q is not None and not params.is_skeletal)
-        else float(np.clip(5.0 * params.wall_thickness / max(params.cell_size, 0.001), 0.05, 1.5))
+        else float(np.clip(kernel.thickness_multiplier * params.wall_thickness / max(params.cell_size, 0.001), 0.05, 1.5 * t_norm))
     )
     if params.is_skeletal:
         # Skeletal strut network: single continuous void channel for resin draining.
-        # Strut thickness is modulated by shifting the isovalue threshold around nominal 50% porosity.
         r = params.wall_thickness / max(params.cell_size, 0.001)
+        scale_strut = 3.0 * t_norm
         thresh = (
-            float(np.quantile(gyroid_val[inside_3d], q))
+            float(np.quantile(scalar_val[inside_3d], q))
             if q is not None
-            else float(np.clip(3.0 * (r - 0.2), -1.1, 1.1))
+            else float(np.clip(scale_strut * (r - 0.2), -1.1 * t_norm, 1.1 * t_norm))
         )
-        void_scalar = thresh - gyroid_val
-        field = gyroid_val - thresh
+        void_scalar = thresh - scalar_val
+        field = scalar_val - thresh
     else:
-        # Sheet gyroid: two intertwined void channels separated by continuous walls.
-        # Thickness threshold calibrated to physical Euclidean thickness:
-        # Scaling by 5.0 accounts for the steep spatial gradient of the gyroid trigonometric field (||grad G|| ≈ 1.53 * 2*pi/L ≈ 9.6/L).
-        void_scalar = t - np.abs(gyroid_val)
-        field = np.abs(gyroid_val) - t
+        # Sheet TPMS: two intertwined void channels separated by continuous walls.
+        void_scalar = t - np.abs(scalar_val)
+        field = np.abs(scalar_val) - t
 
     grid = pv.StructuredGrid(x, y, z)
 
     def _attach_cavities(out_mesh: pv.PolyData, mask_3d: np.ndarray) -> pv.PolyData:
         if params.is_skeletal:
             return out_mesh
-        grid["vol"] = np.where(mask_3d, t - gyroid_val, 1.0).ravel("F")
+        grid["vol"] = np.where(mask_3d, t - scalar_val, 1.0).ravel("F")
         pv.set_new_attribute(out_mesh, "cavity_a", grid.contour([0]))
-        grid["vol"] = np.where(mask_3d, gyroid_val + t, 1.0).ravel("F")
+        grid["vol"] = np.where(mask_3d, scalar_val + t, 1.0).ravel("F")
         pv.set_new_attribute(out_mesh, "cavity_b", grid.contour([0]))
         return out_mesh
 

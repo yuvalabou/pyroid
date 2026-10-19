@@ -55,3 +55,38 @@ def test_cli_stl_conversion_skeletal(monkeypatch, tmp_path):
     monkeypatch.setattr("sys.argv", test_args)
     assert main() == 0
     assert (tmp_path / "out.stl").stat().st_size > 0
+
+
+def test_cli_tpms_options(monkeypatch, tmp_path):
+    out_path = str(tmp_path / "diamond_rad.stl")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["pyroid-cli", "-o", out_path, "--tpms", "diamond", "--res", "25"],
+    )
+    assert main() == 0
+    assert (tmp_path / "diamond_rad.stl").stat().st_size > 0
+
+    cube = trimesh.creation.box(extents=[8, 8, 8])
+    in_path = str(tmp_path / "cube.stl")
+    out_stl = str(tmp_path / "iwp_infill.stl")
+    cube.export(in_path)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "pyroid-cli",
+            "-i",
+            in_path,
+            "-o",
+            out_stl,
+            "--tpms",
+            "i_wp",
+            "--res",
+            "20",
+            "--cell-size",
+            "4.0",
+        ],
+    )
+    assert main() == 0
+    assert (tmp_path / "iwp_infill.stl").stat().st_size > 0
+

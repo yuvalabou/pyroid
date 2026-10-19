@@ -34,6 +34,7 @@ from pyvistaqt import QtInteractor
 
 from pyroid.core import GyroidGenerator
 from pyroid.models import GyroidParams, STLConversionParams
+from pyroid.tpms import get_all_tpms_kernels, get_tpms_kernel
 
 
 class ParametricWorker(QThread):
@@ -166,6 +167,23 @@ class GyroidGeneratorGUI(QMainWindow):
         preset_layout.addWidget(self.save_preset_btn)
         param_tab_layout.addWidget(preset_box)
 
+        # Scaffold Geometry Section
+        tpms_box = QGroupBox("Scaffold Geometry")
+        tpms_layout = QVBoxLayout(tpms_box)
+        tpms_combo_layout = QHBoxLayout()
+        tpms_combo_layout.addWidget(QLabel("TPMS Type:"))
+        self.param_tpms_combo = QComboBox()
+        for k in get_all_tpms_kernels():
+            self.param_tpms_combo.addItem(k.display_name, k.tpms_type.value)
+        self.param_tpms_combo.currentIndexChanged.connect(self.on_param_tpms_changed)
+        tpms_combo_layout.addWidget(self.param_tpms_combo)
+        tpms_layout.addLayout(tpms_combo_layout)
+        self.param_tpms_desc = QLabel(get_tpms_kernel("gyroid").description)
+        self.param_tpms_desc.setWordWrap(True)
+        self.param_tpms_desc.setStyleSheet("color: #888888; font-size: 11px;")
+        tpms_layout.addWidget(self.param_tpms_desc)
+        param_tab_layout.addWidget(tpms_box)
+
         # Parameters Section
         params_box = QGroupBox("Parameters")
         params_layout = QVBoxLayout(params_box)
@@ -224,6 +242,25 @@ class GyroidGeneratorGUI(QMainWindow):
 
         stl_params_box = QGroupBox("Conversion Settings")
         stl_params_layout = QVBoxLayout(stl_params_box)
+
+        # TPMS Geometry
+        tpms_row = QHBoxLayout()
+        tpms_lbl = QLabel("TPMS Scaffold:")
+        tpms_tip = "Select TPMS lattice topology (Gyroid, Diamond, Primitive, I-WP, Fischer-Koch S, Neovius)"
+        tpms_lbl.setToolTip(tpms_tip)
+        tpms_row.addWidget(tpms_lbl)
+        self.stl_tpms_combo = QComboBox()
+        for k in get_all_tpms_kernels():
+            self.stl_tpms_combo.addItem(k.display_name, k.tpms_type.value)
+        self.stl_tpms_combo.setToolTip(tpms_tip)
+        self.stl_tpms_combo.currentIndexChanged.connect(self.on_stl_tpms_changed)
+        tpms_row.addWidget(self.stl_tpms_combo)
+        stl_params_layout.addLayout(tpms_row)
+
+        self.stl_tpms_desc = QLabel(get_tpms_kernel("gyroid").description)
+        self.stl_tpms_desc.setWordWrap(True)
+        self.stl_tpms_desc.setStyleSheet("color: #888888; font-size: 11px;")
+        stl_params_layout.addWidget(self.stl_tpms_desc)
 
         # Resolution
         res_row = QHBoxLayout()
@@ -422,6 +459,18 @@ class GyroidGeneratorGUI(QMainWindow):
         reset_camera_action.triggered.connect(self.plotter.reset_camera)
         view_menu.addAction(reset_camera_action)
 
+    def on_param_tpms_changed(self, _index: int = 0):
+        if hasattr(self, "param_tpms_combo") and hasattr(self, "param_tpms_desc"):
+            tpms_val = self.param_tpms_combo.currentData()
+            kernel = get_tpms_kernel(tpms_val)
+            self.param_tpms_desc.setText(kernel.description)
+
+    def on_stl_tpms_changed(self, _index: int = 0):
+        if hasattr(self, "stl_tpms_combo") and hasattr(self, "stl_tpms_desc"):
+            tpms_val = self.stl_tpms_combo.currentData()
+            kernel = get_tpms_kernel(tpms_val)
+            self.stl_tpms_desc.setText(kernel.description)
+
     def on_preset_changed(self, preset_name):
         self.apply_preset(preset_name)
         self.current_preset = preset_name
@@ -429,9 +478,14 @@ class GyroidGeneratorGUI(QMainWindow):
     def apply_preset(self, preset_name):
         presets = GyroidGenerator.get_presets()
         if preset_name in presets:
-            for k, v in presets[preset_name].items():
+            data = presets[preset_name]
+            for k, v in data.items():
                 if k in self.params_widgets:
                     self.params_widgets[k].setText(str(v))
+            if "tpms_type" in data and hasattr(self, "param_tpms_combo"):
+                idx = self.param_tpms_combo.findData(data["tpms_type"])
+                if idx >= 0:
+                    self.param_tpms_combo.setCurrentIndex(idx)
 
     def save_current_as_preset(self):
         name, ok = QFileDialog.getSaveFileName(
@@ -453,6 +507,8 @@ class GyroidGeneratorGUI(QMainWindow):
         for k, widget in self.params_widgets.items():
             val = widget.text()
             raw_dict[k] = int(val) if k == "res" else float(val or 0.0)
+        if hasattr(self, "param_tpms_combo"):
+            raw_dict["tpms_type"] = self.param_tpms_combo.currentData()
         return GyroidParams.from_dict(raw_dict)
 
     def eventFilter(self, watched, event):
@@ -564,6 +620,10 @@ class GyroidGeneratorGUI(QMainWindow):
             for k, v in preset_data.items():
                 if k in self.params_widgets:
                     self.params_widgets[k].setText(str(v))
+            if "tpms_type" in preset_data and hasattr(self, "param_tpms_combo"):
+                idx = self.param_tpms_combo.findData(str(preset_data["tpms_type"]))
+                if idx >= 0:
+                    self.param_tpms_combo.setCurrentIndex(idx)
             self.tabs.setCurrentIndex(0)
             self.statusBar.showMessage(f"Loaded preset: {os.path.basename(file_path)}")
         except Exception as e:
@@ -614,13 +674,18 @@ class GyroidGeneratorGUI(QMainWindow):
             res = int(self.stl_res_edit.text())
             wall_thick = float(self.stl_wall_edit.text())
             is_skeletal = self.stl_skeletal_check.isChecked()
+            tpms_type = (
+                self.stl_tpms_combo.currentData()
+                if hasattr(self, "stl_tpms_combo")
+                else "gyroid"
+            )
             if self.stl_cell_check.isChecked():
                 cell_size = float(self.stl_cell_edit.text())
                 infill_pct = None
             else:
                 infill_pct = float(self.stl_infill_edit.text())
                 cell_size = STLConversionParams.estimate_cell_size(
-                    infill_pct, wall_thick, is_skeletal
+                    infill_pct, wall_thick, is_skeletal, tpms_type=tpms_type
                 )
             bias = float(self.stl_bias_edit.text() or 0.0)
             flat_cap = self.stl_cap_check.isChecked()
@@ -629,6 +694,7 @@ class GyroidGeneratorGUI(QMainWindow):
 
             stl_params = STLConversionParams(
                 stl_path=stl_path,
+                tpms_type=tpms_type,
                 resolution=res,
                 cell_size=cell_size,
                 wall_thickness=wall_thick,

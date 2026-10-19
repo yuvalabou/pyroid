@@ -4,6 +4,7 @@
 PyRoid is a Python package, CLI tool, and Qt graphical interface for generating, visualizing, and exporting radially symmetrical gyroid structures and converting arbitrary 3D STL geometries into gyroid lattice solids.
 
 ## Package Architecture
+- `pyroid/tpms.py`: TPMS mathematical kernels (Gyroid, Diamond, Primitive, I-WP, Fischer-Koch S, Neovius), nodal level-set equations, and thickness calibration factors.
 - `pyroid/core.py`: Pure mathematical engine and mesh generation (`GyroidGenerator`).
 - `pyroid/models.py`: Strongly-typed dataclasses for parameters (`GyroidParams`, `STLConversionParams`).
 - `pyroid/mesh_utils.py`: Utilities for mesh processing, watertight repair, STL volumetric containment masking, and offscreen rendering.
@@ -23,6 +24,7 @@ PyRoid is a Python package, CLI tool, and Qt graphical interface for generating,
 - **Run GUI**: `uv run main.py` or `uv run pyroid`
 - **Run CLI**: `uv run main.py --cli --output model.stl` or `uv run pyroid-cli -o model.stl`
 - **Run Tests**: `uv run pytest -v`
-- **Convert STL**: `uv run pyroid-cli -i input.stl -o gyroid_output.stl --cell-size 5.0`
+- **Generate Parametric Diamond**: `uv run pyroid-cli -o diamond.stl --tpms diamond`
+- **Convert STL with Diamond**: `uv run pyroid-cli -i input.stl -o diamond_output.stl --tpms diamond --cell-size 5.0`
 - **Convert STL with Shell**: `uv run pyroid-cli -i input.stl -o gyroid_output.stl --cell-size 5.0 --preserve-shell --shell-thickness 1.0`
-- **Convert STL Skeletal (Resin Drainage)**: `uv run pyroid-cli -i input.stl -o gyroid_output.stl --cell-size 5.0 --skeletal`
+- **Convert STL Skeletal (Resin Drainage)**: `uv run pyroid-cli -i input.stl -o gyroid_output.stl --cell-size 5.0 --skeletal --tpms i_wp`

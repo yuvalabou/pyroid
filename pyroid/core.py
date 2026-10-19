@@ -12,8 +12,9 @@ import pyvista as pv
 import trimesh
 
 from pyroid.mesh_utils import (convert_stl_to_gyroid, load_stl,
-                               prepare_for_printing, render_offscreen)
+                                prepare_for_printing, render_offscreen)
 from pyroid.models import GyroidParams, STLConversionParams
+from pyroid.tpms import get_tpms_kernel
 
 
 class GyroidGenerator:
@@ -47,7 +48,7 @@ class GyroidGenerator:
         self, progress_callback: Callable[[int, str], None] | None = None
     ) -> pv.PolyData:
         """
-        Generate the radially symmetrical gyroid mesh using current parameters.
+        Generate the radially symmetrical gyroid/TPMS mesh using current parameters.
 
         Returns:
             PyVista PolyData mesh object.
@@ -61,6 +62,7 @@ class GyroidGenerator:
 
         p = self.params
         res = int(p.res)
+        kernel = get_tpms_kernel(p.tpms_type)
 
         if progress_callback:
             progress_callback(10, f"Initializing cylindrical grid (res={res})...")
@@ -74,19 +76,18 @@ class GyroidGenerator:
         r = (p.r2 - p.r1) / p.a * r_aux + p.r1
 
         if progress_callback:
-            progress_callback(35, "Evaluating radial gyroid scalar field...")
+            progress_callback(35, f"Evaluating radial {kernel.display_name} scalar field...")
 
-        # Calculate radial gyroid function values
+        # Calculate radial TPMS function values
         scale_x = 2.0 * np.pi * p.cell_radius / p.a
         scale_y = 2.0 * np.pi * p.cell_radius / p.b
         scale_z = 2.0 * np.pi * p.cell_height / p.c
 
         phi_scaled = phi * p.phi_scale
-        raw_g = (
-            np.cos(r_aux * scale_x) * np.sin(phi_scaled * scale_y)
-            + np.cos(phi_scaled * scale_y) * np.sin(z * scale_z)
-            + np.cos(z * scale_z) * np.sin(r_aux * scale_x)
-        ) + p.bias
+        X = r_aux * scale_x
+        Y = phi_scaled * scale_y
+        Z = z * scale_z
+        raw_g = kernel.eval_radial(X, Y, Z) + p.bias
 
         # Apply radial mask
         mask = (r >= (p.r1 - p.wall_thickness)) & (r <= p.r1)
@@ -106,7 +107,7 @@ class GyroidGenerator:
         grid = pv.StructuredGrid(x, y, z)
         grid["vol"] = fun_values.ravel("F")
         self.mesh = grid.contour([0])
-        t_sheet = 0.2
+        t_sheet = 0.2 * (kernel.thickness_multiplier / 4.80)
         grid["vol"] = np.where(mask, t_sheet - raw_g, 1.0).ravel("F")
         self.cavity_a = grid.contour([0])
         grid["vol"] = np.where(mask, raw_g + t_sheet, 1.0).ravel("F")

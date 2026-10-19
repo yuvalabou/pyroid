@@ -29,6 +29,17 @@ def parse_args():
         help="Output mesh file path (.stl or .obj extension)",
     )
 
+    # Geometry Type
+    parser.add_argument(
+        "--tpms",
+        "--tpms-type",
+        dest="tpms_type",
+        type=str,
+        default="gyroid",
+        choices=["gyroid", "diamond", "primitive", "i_wp", "fischer_koch_s", "neovius"],
+        help="TPMS scaffold geometry: gyroid, diamond, primitive, i_wp, fischer_koch_s, neovius",
+    )
+
     # STL Import & Conversion Group
     stl_group = parser.add_argument_group("STL Volume Infill Conversion")
     stl_group.add_argument(
@@ -145,12 +156,15 @@ def main():
             print(f"Loading input STL: {args.input_stl}...")
             stl_wall = args.wall_thickness if args.wall_thickness is not None else 0.8
             cell_size = (
-                STLConversionParams.estimate_cell_size(args.infill, stl_wall, args.skeletal)
+                STLConversionParams.estimate_cell_size(
+                    args.infill, stl_wall, args.skeletal, tpms_type=args.tpms_type
+                )
                 if args.infill is not None
                 else args.cell_size
             )
             stl_params = STLConversionParams(
                 stl_path=args.input_stl,
+                tpms_type=args.tpms_type,
                 resolution=args.res,
                 cell_size=cell_size,
                 wall_thickness=stl_wall,
@@ -161,7 +175,7 @@ def main():
                 is_skeletal=args.skeletal,
                 infill_percent=args.infill,
             )
-            print("Converting STL volume to Gyroid lattice...")
+            print(f"Converting STL volume to {args.tpms_type.title()} lattice...")
             generator.convert_from_stl(stl_params)
 
         else:
@@ -191,6 +205,7 @@ def main():
                 args.wall_thickness if args.wall_thickness is not None else 11.5
             )
             cli_overrides = {
+                "tpms_type": args.tpms_type,
                 "res": args.res,
                 "a": args.a,
                 "b": args.b,
@@ -201,6 +216,7 @@ def main():
                 "wall_thickness": param_wall,
                 "cell_radius": args.cell_radius,
                 "cell_height": args.cell_height,
+                "bias": args.bias,
             }
             params_dict.update(cli_overrides)
             generator.params = GyroidParams.from_dict(params_dict)
