@@ -88,24 +88,35 @@ def convert_stl_to_gyroid(
         progress_callback(50, "Evaluating 3D gyroid scalar field...")
 
     # Gyroid 3D scalar equation: sin(kx*x)*cos(ky*y) + sin(ky*y)*cos(kz*z) + sin(kz*z)*cos(kx*x)
-    cy = params.cell_size_y if params.cell_size_y > 0 else params.cell_size
-    cz = params.cell_size_z if params.cell_size_z > 0 else params.cell_size
-    mean_cell = (params.cell_size + cy + cz) / 3.0
-    kx = 2.0 * np.pi / max(params.cell_size, 0.001)
-    ky = 2.0 * np.pi / max(cy, 0.001)
-    kz = 2.0 * np.pi / max(cz, 0.001)
+    k = 2.0 * np.pi / max(params.cell_size, 0.001)
     gyroid_val = (
-        np.sin(kx * x) * np.cos(ky * y)
-        + np.sin(ky * y) * np.cos(kz * z)
-        + np.sin(kz * z) * np.cos(kx * x)
+        np.sin(k * x) * np.cos(k * y)
+        + np.sin(k * y) * np.cos(k * z)
+        + np.sin(k * z) * np.cos(k * x)
     ) + params.bias
 
-    t = np.clip(5.0 * params.wall_thickness / max(mean_cell, 0.001), 0.05, 1.5)
+    # Mask out points outside the STL geometry
+    inside_3d = inside_mask.reshape(x.shape)
+    q = (
+        np.clip(params.infill_percent / 100.0, 0.01, 0.99)
+        if params.infill_percent is not None and inside_3d.any()
+        else None
+    )
+
+    t = (
+        float(np.quantile(np.abs(gyroid_val[inside_3d]), q))
+        if (q is not None and not params.is_skeletal)
+        else float(np.clip(5.0 * params.wall_thickness / max(params.cell_size, 0.001), 0.05, 1.5))
+    )
     if params.is_skeletal:
         # Skeletal strut network: single continuous void channel for resin draining.
         # Strut thickness is modulated by shifting the isovalue threshold around nominal 50% porosity.
-        r = params.wall_thickness / max(mean_cell, 0.001)
-        thresh = np.clip(3.0 * (r - 0.2), -1.1, 1.1)
+        r = params.wall_thickness / max(params.cell_size, 0.001)
+        thresh = (
+            float(np.quantile(gyroid_val[inside_3d], q))
+            if q is not None
+            else float(np.clip(3.0 * (r - 0.2), -1.1, 1.1))
+        )
         void_scalar = thresh - gyroid_val
         field = gyroid_val - thresh
     else:
@@ -115,11 +126,11 @@ def convert_stl_to_gyroid(
         void_scalar = t - np.abs(gyroid_val)
         field = np.abs(gyroid_val) - t
 
-    # Mask out points outside the STL geometry
-    inside_3d = inside_mask.reshape(x.shape)
     grid = pv.StructuredGrid(x, y, z)
 
     def _attach_cavities(out_mesh: pv.PolyData, mask_3d: np.ndarray) -> pv.PolyData:
+        if params.is_skeletal:
+            return out_mesh
         grid["vol"] = np.where(mask_3d, t - gyroid_val, 1.0).ravel("F")
         pv.set_new_attribute(out_mesh, "cavity_a", grid.contour([0]))
         grid["vol"] = np.where(mask_3d, gyroid_val + t, 1.0).ravel("F")

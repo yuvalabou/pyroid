@@ -1,1 +1,0 @@
-"""PyRoid - a Python library for generating gyroid lattice structures from 3D meshes."""

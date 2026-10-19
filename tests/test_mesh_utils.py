@@ -113,9 +113,32 @@ def test_stl_gyroid_asymmetric_cavities(tmp_path):
 
     tri_mesh, _ = load_stl(tmp_path_stl)
     params_pos = STLConversionParams(
-        stl_path=tmp_path_stl, resolution=30, cell_size=5.0, cell_size_z=8.0, wall_thickness=0.6, bias=0.4
+        stl_path=tmp_path_stl, resolution=30, cell_size=5.0, wall_thickness=0.6, bias=0.4
     )
     mesh_pos = convert_stl_to_gyroid(tri_mesh, params_pos)
     assert hasattr(mesh_pos, "cavity_a") and hasattr(mesh_pos, "cavity_b")
     assert mesh_pos.cavity_a.n_cells > mesh_pos.cavity_b.n_cells
+
+
+def test_stl_gyroid_target_infill_percent(tmp_path):
+    cube = trimesh.creation.box(extents=[12, 12, 12])
+    tmp_path_stl = str(tmp_path / "cube.stl")
+    cube.export(tmp_path_stl)
+    tri_mesh, _ = load_stl(tmp_path_stl)
+
+    cell_25 = STLConversionParams.estimate_cell_size(25.0, 0.8)
+    cell_60 = STLConversionParams.estimate_cell_size(60.0, 0.8)
+    assert cell_25 > cell_60
+    assert abs(STLConversionParams.estimate_infill(cell_25, 0.8) - 25.0) < 0.5
+
+    mesh_low = convert_stl_to_gyroid(
+        tri_mesh,
+        STLConversionParams(stl_path=tmp_path_stl, resolution=35, cell_size=cell_25, wall_thickness=0.8, infill_percent=25.0),
+    )
+    mesh_high = convert_stl_to_gyroid(
+        tri_mesh,
+        STLConversionParams(stl_path=tmp_path_stl, resolution=35, cell_size=cell_60, wall_thickness=0.8, infill_percent=60.0),
+    )
+    assert mesh_high.volume > mesh_low.volume
+
 

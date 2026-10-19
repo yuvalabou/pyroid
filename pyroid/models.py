@@ -69,15 +69,7 @@ class STLConversionParams:
         default=80, metadata={"help": "Voxel grid resolution along max dimension"}
     )
     cell_size: float = field(
-        default=5.0, metadata={"help": "Gyroid unit cell size X (mm or model units)"}
-    )
-    cell_size_y: float = field(
-        default=0.0,
-        metadata={"help": "Gyroid unit cell size Y (0 = same as cell_size)"},
-    )
-    cell_size_z: float = field(
-        default=0.0,
-        metadata={"help": "Gyroid unit cell size Z (0 = same as cell_size)"},
+        default=5.0, metadata={"help": "Gyroid unit cell size (mm or model units)"}
     )
     wall_thickness: float = field(
         default=0.8,
@@ -105,18 +97,49 @@ class STLConversionParams:
             "help": "Generate skeletal strut-based lattice (single continuous void) instead of sheet walls"
         },
     )
+    infill_percent: float | None = field(
+        default=None,
+        metadata={"help": "Target solid infill volume percentage (1 to 99)"},
+    )
+
+    @staticmethod
+    def estimate_infill(
+        cell_size: float, wall_thickness: float, is_skeletal: bool = False
+    ) -> float:
+        """Estimate solid infill percentage from cell size and wall thickness."""
+        if cell_size <= 0 or wall_thickness <= 0:
+            return 0.0
+        ratio = wall_thickness / cell_size
+        if is_skeletal:
+            return float(min(95.0, max(5.0, 50.0 + 95.5 * (ratio - 0.2))))
+        return float(min(95.0, max(5.0, 318.3 * ratio)))
+
+    @staticmethod
+    def estimate_cell_size(
+        infill_percent: float, wall_thickness: float, is_skeletal: bool = False
+    ) -> float:
+        """Estimate required cell size (mm) to achieve target infill % at given wall thickness."""
+        pct = min(95.0, max(5.0, infill_percent))
+        if wall_thickness <= 0:
+            return 5.0
+        if is_skeletal:
+            ratio = max(0.05, 0.2 + (pct - 50.0) / 95.5)
+            return float(wall_thickness / ratio)
+        return float(318.3 * wall_thickness / pct)
 
     def validate(self) -> tuple[bool, str]:
         if not self.stl_path:
             return False, "Input STL path must be specified"
         if self.resolution <= 10:
             return False, "Resolution must be at least 10"
-        if self.cell_size <= 0 or self.cell_size_y < 0 or self.cell_size_z < 0:
+        if self.cell_size <= 0:
             return False, "Cell size must be positive"
         if self.wall_thickness <= 0:
             return False, "Wall thickness must be positive"
         if not (-1.4 <= self.bias <= 1.4):
             return False, "Bias must be between -1.4 and 1.4"
+        if self.infill_percent is not None and not (0.0 < self.infill_percent < 100.0):
+            return False, "Infill percent must be between 0 and 100"
         if self.preserve_shell and self.shell_thickness <= 0:
             return (
                 False,

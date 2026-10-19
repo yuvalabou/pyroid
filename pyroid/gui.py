@@ -236,21 +236,18 @@ class GyroidGeneratorGUI(QMainWindow):
         res_row.addWidget(self.stl_res_edit)
         stl_params_layout.addLayout(res_row)
 
-        # Cell Size (X / Y / Z)
-        cell_row = QHBoxLayout()
-        cell_lbl = QLabel("Cell Size X/Y/Z (mm):")
-        cell_lbl.setToolTip("Gyroid unit cell period along X, Y, and Z in mm (set Y or Z to 0 to match X)")
-        cell_row.addWidget(cell_lbl)
-        self.stl_cell_edit = QLineEdit("5.0")
-        self.stl_cell_edit.setToolTip("X unit cell size in mm (also used for Y/Z when they are 0)")
-        self.stl_cell_y_edit = QLineEdit("0.0")
-        self.stl_cell_y_edit.setToolTip("Y unit cell size in mm (0 = match X cell size)")
-        self.stl_cell_z_edit = QLineEdit("0.0")
-        self.stl_cell_z_edit.setToolTip("Z unit cell size in mm (0 = match X cell size)")
-        cell_row.addWidget(self.stl_cell_edit)
-        cell_row.addWidget(self.stl_cell_y_edit)
-        cell_row.addWidget(self.stl_cell_z_edit)
-        stl_params_layout.addLayout(cell_row)
+        # Target Infill %
+        infill_row = QHBoxLayout()
+        self.stl_infill_label = QLabel("Target Infill (%):")
+        infill_tip = (
+            "Target solid volume percentage (1 to 99); automatically determines unit cell size from Wall Thickness"
+        )
+        self.stl_infill_label.setToolTip(infill_tip)
+        infill_row.addWidget(self.stl_infill_label)
+        self.stl_infill_edit = QLineEdit("30")
+        self.stl_infill_edit.setToolTip(infill_tip)
+        infill_row.addWidget(self.stl_infill_edit)
+        stl_params_layout.addLayout(infill_row)
 
         # Wall Thickness
         wall_row = QHBoxLayout()
@@ -263,12 +260,26 @@ class GyroidGeneratorGUI(QMainWindow):
         wall_row.addWidget(self.stl_wall_edit)
         stl_params_layout.addLayout(wall_row)
 
+        # Optional Cell Size Override
+        cell_row = QHBoxLayout()
+        cell_tip = "Override automatic cell sizing with a fixed unit cell period in mm"
+        self.stl_cell_check = QCheckBox("Custom Cell Size (mm):")
+        self.stl_cell_check.setChecked(False)
+        self.stl_cell_check.setToolTip(cell_tip)
+        self.stl_cell_check.toggled.connect(self.on_cell_override_toggled)
+        cell_row.addWidget(self.stl_cell_check)
+        self.stl_cell_edit = QLineEdit("5.0")
+        self.stl_cell_edit.setToolTip(cell_tip)
+        self.stl_cell_edit.setEnabled(False)
+        cell_row.addWidget(self.stl_cell_edit)
+        stl_params_layout.addLayout(cell_row)
+
         # Asymmetric Cavity Bias
         bias_row = QHBoxLayout()
-        bias_lbl = QLabel("Cavity A/B Bias (-1..1):")
+        self.stl_bias_label = QLabel("Cavity A/B Bias (-1..1):")
         bias_tip = "Shift dividing wall: >0 widens Cavity A (Red), <0 widens Cavity B (Blue), 0 = equal 50/50 split"
-        bias_lbl.setToolTip(bias_tip)
-        bias_row.addWidget(bias_lbl)
+        self.stl_bias_label.setToolTip(bias_tip)
+        bias_row.addWidget(self.stl_bias_label)
         self.stl_bias_edit = QLineEdit("0.0")
         self.stl_bias_edit.setToolTip(bias_tip)
         bias_row.addWidget(self.stl_bias_edit)
@@ -282,6 +293,7 @@ class GyroidGeneratorGUI(QMainWindow):
         self.stl_skeletal_check.setToolTip(
             "Generate network-based struts with a single continuous void channel, ideal for resin draining."
         )
+        self.stl_skeletal_check.toggled.connect(self.on_skeletal_toggled)
         stl_params_layout.addWidget(self.stl_skeletal_check)
 
         # Flat Capping
@@ -361,6 +373,7 @@ class GyroidGeneratorGUI(QMainWindow):
         self.cutaway_check.toggled.connect(self.on_view_mode_changed)
         view_layout.addWidget(self.cutaway_check)
         left_layout.addWidget(view_box)
+        self.tabs.currentChanged.connect(self.on_skeletal_toggled)
 
         # Stats section
         self.stats_box = QGroupBox("Mesh Statistics")
@@ -599,28 +612,32 @@ class GyroidGeneratorGUI(QMainWindow):
 
         try:
             res = int(self.stl_res_edit.text())
-            cell_size = float(self.stl_cell_edit.text())
-            cell_size_y = float(self.stl_cell_y_edit.text() or 0.0)
-            cell_size_z = float(self.stl_cell_z_edit.text() or 0.0)
             wall_thick = float(self.stl_wall_edit.text())
+            is_skeletal = self.stl_skeletal_check.isChecked()
+            if self.stl_cell_check.isChecked():
+                cell_size = float(self.stl_cell_edit.text())
+                infill_pct = None
+            else:
+                infill_pct = float(self.stl_infill_edit.text())
+                cell_size = STLConversionParams.estimate_cell_size(
+                    infill_pct, wall_thick, is_skeletal
+                )
             bias = float(self.stl_bias_edit.text() or 0.0)
             flat_cap = self.stl_cap_check.isChecked()
             preserve_shell = self.stl_shell_check.isChecked()
             shell_thick = float(self.stl_shell_edit.text()) if preserve_shell else 1.0
-            is_skeletal = self.stl_skeletal_check.isChecked()
 
             stl_params = STLConversionParams(
                 stl_path=stl_path,
                 resolution=res,
                 cell_size=cell_size,
-                cell_size_y=cell_size_y,
-                cell_size_z=cell_size_z,
                 wall_thickness=wall_thick,
                 bias=bias,
                 flat_cap=flat_cap,
                 preserve_shell=preserve_shell,
                 shell_thickness=shell_thick,
                 is_skeletal=is_skeletal,
+                infill_percent=infill_pct,
             )
 
             self._gen_start_time = time.perf_counter()
@@ -638,9 +655,27 @@ class GyroidGeneratorGUI(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Invalid parameters: {str(e)}")
 
+    def on_cell_override_toggled(self, checked: bool):
+        self.stl_cell_edit.setEnabled(checked)
+        self.stl_infill_label.setEnabled(not checked)
+        self.stl_infill_edit.setEnabled(not checked)
+
     def on_shell_check_toggled(self, checked: bool):
         self.stl_shell_label.setEnabled(checked)
         self.stl_shell_edit.setEnabled(checked)
+
+    def on_skeletal_toggled(self, _checked: bool = False):
+        is_skeletal_stl = (
+            self.tabs.currentIndex() == 1 and self.stl_skeletal_check.isChecked()
+        )
+        self.stl_bias_label.setEnabled(not self.stl_skeletal_check.isChecked())
+        self.stl_bias_edit.setEnabled(not self.stl_skeletal_check.isChecked())
+        self.show_cav_a_check.setEnabled(not is_skeletal_stl)
+        self.show_cav_b_check.setEnabled(not is_skeletal_stl)
+        if is_skeletal_stl:
+            self.show_cav_a_check.setChecked(False)
+            self.show_cav_b_check.setChecked(False)
+            self.show_wall_check.setChecked(True)
 
     def on_view_mode_changed(self):
         if self.generator and self.generator.mesh:

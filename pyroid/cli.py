@@ -68,6 +68,18 @@ def parse_args():
         default=False,
         help="Generate skeletal strut-based lattice (single continuous void) instead of sheet walls",
     )
+    stl_group.add_argument(
+        "--infill",
+        type=float,
+        default=None,
+        help="Target solid infill percentage (1 to 99); auto-computes cell size from wall thickness if --cell-size is not explicitly set",
+    )
+    stl_group.add_argument(
+        "--bias",
+        type=float,
+        default=0.0,
+        help="Cavity A/B volume balance offset (-1.0 to 1.0)",
+    )
 
     # Parametric Gyroid Group
     param_group = parser.add_argument_group("Parametric Gyroid Parameters")
@@ -132,15 +144,22 @@ def main():
         if args.input_stl:
             print(f"Loading input STL: {args.input_stl}...")
             stl_wall = args.wall_thickness if args.wall_thickness is not None else 0.8
+            cell_size = (
+                STLConversionParams.estimate_cell_size(args.infill, stl_wall, args.skeletal)
+                if args.infill is not None
+                else args.cell_size
+            )
             stl_params = STLConversionParams(
                 stl_path=args.input_stl,
                 resolution=args.res,
-                cell_size=args.cell_size,
+                cell_size=cell_size,
                 wall_thickness=stl_wall,
+                bias=args.bias,
                 flat_cap=args.flat_cap,
                 preserve_shell=args.preserve_shell,
                 shell_thickness=args.shell_thickness,
                 is_skeletal=args.skeletal,
+                infill_percent=args.infill,
             )
             print("Converting STL volume to Gyroid lattice...")
             generator.convert_from_stl(stl_params)

@@ -744,7 +744,7 @@ version = "3.5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and python_full_version < '3.15'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/66/36/5b11c97e56d2101b1c6e311580f2546dd0d1cf0fbb167ec59e122e195ced/manifold3d-3.5.2.tar.gz", hash = "sha256:8d445798ba5f86efae18e0dca6cb71823165f0887767a274d7c14ed63ab64648", size = 305761, upload-time = "2026-06-27T05:26:54.353Z" }
 wheels = [
@@ -1357,14 +1357,12 @@ name = "pyroid"
 version = "1.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "networkx" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pyqt5" },
     { name = "pyvista" },
     { name = "pyvistaqt" },
     { name = "qdarkstyle" },
-    { name = "rtree" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "trimesh", extra = ["easy"] },
@@ -1380,14 +1378,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "networkx", specifier = ">=3.0" },
     { name = "numpy", specifier = ">=1.20.0" },
     { name = "pyqt5", specifier = ">=5.15.0,<5.15.11" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pyvista", specifier = ">=0.43.0" },
     { name = "pyvistaqt", specifier = ">=0.11.0" },
     { name = "qdarkstyle", specifier = ">=3.0.0" },
-    { name = "rtree", specifier = ">=1.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "scipy", specifier = ">=1.7.0" },
     { name = "trimesh", extras = ["easy"], specifier = ">=4.0.0" },
