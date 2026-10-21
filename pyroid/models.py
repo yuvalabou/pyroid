@@ -3,10 +3,11 @@
 Defines strongly-typed dataclasses for parametric gyroid generation (GyroidParams)
 and volumetric STL lattice infill conversion (STLConversionParams).
 """
+
 from dataclasses import asdict, dataclass, field
 from typing import Any, Self
 
-from pyroid.tpms import TPMSType
+from pyroid.tpms import TPMSType, get_tpms_kernel
 
 
 @dataclass(slots=True)
@@ -19,16 +20,20 @@ class GyroidParams:
             "help": "TPMS geometry: gyroid, diamond, primitive, i_wp, fischer_koch_s, neovius"
         },
     )
-    res: int = field(default=80, metadata={"help": "Grid resolution in each dimension (higher = smoother mesh, slower generation)"})
+    res: int = field(
+        default=80,
+        metadata={
+            "help": "Grid resolution in each dimension (higher = smoother mesh, slower generation)"
+        },
+    )
     a: float = field(default=24.0, metadata={"help": "Radial domain length along X-axis"})
     b: float = field(default=24.0, metadata={"help": "Angular domain length along Y-axis"})
     c: float = field(default=10.0, metadata={"help": "Vertical height along Z-axis"})
-    r1: float = field(
-        default=12.0, metadata={"help": "Outer cylinder radius"}
-    )
+    r1: float = field(default=12.0, metadata={"help": "Outer cylinder radius"})
     r2: float = field(default=0.0, metadata={"help": "Inner core radius (0 = solid center)"})
     phi_scale: float = field(
-        default=8.0, metadata={"help": "Angular coordinate scaling factor (number of radial twists)"}
+        default=8.0,
+        metadata={"help": "Angular coordinate scaling factor (number of radial twists)"},
     )
     wall_thickness: float = field(
         default=11.5, metadata={"help": "Radial annular ring thickness (from r1 inward)"}
@@ -41,7 +46,9 @@ class GyroidParams:
     )
     bias: float = field(
         default=0.0,
-        metadata={"help": "Asymmetric cavity balance (-1.0 to 1.0): >0 widens Cavity A (Red), <0 widens Cavity B (Blue)"},
+        metadata={
+            "help": "Asymmetric cavity balance (-1.0 to 1.0): >0 widens Cavity A (Red), <0 widens Cavity B (Blue)"
+        },
     )
 
     def validate(self) -> tuple[bool, str]:
@@ -69,16 +76,9 @@ class GyroidParams:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        clean = {}
-        for k, v in data.items():
-            if k not in cls.__dataclass_fields__:
-                continue
-            if k == "tpms_type":
-                clean[k] = str(v)
-            elif k == "res":
-                clean[k] = int(v)
-            else:
-                clean[k] = float(v)
+        clean = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+        if "res" in clean:
+            clean["res"] = int(clean["res"])
         return cls(**clean)
 
 
@@ -132,16 +132,10 @@ class STLConversionParams:
 
     @staticmethod
     def _tpms_surface_factor(tpms_type: str = "gyroid") -> float:
-        cleaned = tpms_type.lower().replace("-", "_")
-        factors = {
-            "gyroid": 318.3,
-            "diamond": 384.0,
-            "primitive": 235.0,
-            "i_wp": 358.0,
-            "fischer_koch_s": 396.0,
-            "neovius": 512.0,
-        }
-        return factors.get(cleaned, 318.3)
+        try:
+            return get_tpms_kernel(tpms_type).surface_factor
+        except Exception:
+            return 318.3
 
     @staticmethod
     def estimate_infill(

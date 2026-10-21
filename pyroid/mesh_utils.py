@@ -3,6 +3,7 @@
 Provides utilities for STL loading, volumetric voxel containment testing,
 gyroid lattice infill generation, watertight manifold preparation, and offscreen rendering.
 """
+
 import os
 from collections.abc import Callable
 
@@ -105,7 +106,13 @@ def convert_stl_to_gyroid(
     t = (
         float(np.quantile(np.abs(scalar_val[inside_3d]), q))
         if (q is not None and not params.is_skeletal)
-        else float(np.clip(kernel.thickness_multiplier * params.wall_thickness / max(params.cell_size, 0.001), 0.05, 1.5 * t_norm))
+        else float(
+            np.clip(
+                kernel.thickness_multiplier * params.wall_thickness / max(params.cell_size, 0.001),
+                0.05,
+                1.5 * t_norm,
+            )
+        )
     )
     if params.is_skeletal:
         # Skeletal strut network: single continuous void channel for resin draining.
@@ -148,9 +155,7 @@ def convert_stl_to_gyroid(
         inner_mask = dist_inside > params.shell_thickness
 
         # Void exists only where dist_inside > shell_thickness AND pore condition met.
-        field_void = np.maximum(
-            params.shell_thickness - dist_inside, void_scalar
-        )
+        field_void = np.maximum(params.shell_thickness - dist_inside, void_scalar)
 
         if progress_callback:
             progress_callback(75, "Extracting internal void isosurface...")
@@ -207,9 +212,7 @@ def convert_stl_to_gyroid(
     if progress_callback:
         progress_callback(75, "Extracting gyroid isosurface contour...")
 
-    field[~inside_3d] = (
-        1.0  # Set outside points high so isosurface doesn't form outside boundary
-    )
+    field[~inside_3d] = 1.0  # Set outside points high so isosurface doesn't form outside boundary
 
     # Construct PyVista grid and contour isosurface at 0
     grid["vol"] = field.ravel("F")

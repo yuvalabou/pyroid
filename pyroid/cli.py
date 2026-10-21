@@ -4,6 +4,7 @@
 Provides commands and options to generate radially symmetrical gyroid meshes
 and convert arbitrary STL 3D models into gyroid lattices.
 """
+
 import argparse
 import json
 import os
@@ -102,9 +103,7 @@ def parse_args():
     param_group.add_argument("--c", type=float, default=10, help="Z-axis length")
     param_group.add_argument("--r1", type=float, default=12, help="Inner radius")
     param_group.add_argument("--r2", type=float, default=0, help="Outer radius")
-    param_group.add_argument(
-        "--phi-scale", type=float, default=8, help="Angular scaling factor"
-    )
+    param_group.add_argument("--phi-scale", type=float, default=8, help="Angular scaling factor")
     param_group.add_argument(
         "--wall-thickness",
         type=float,
@@ -201,9 +200,7 @@ def main():
                     return 1
 
             # Override with explicit flags
-            param_wall = (
-                args.wall_thickness if args.wall_thickness is not None else 11.5
-            )
+            param_wall = args.wall_thickness if args.wall_thickness is not None else 11.5
             cli_overrides = {
                 "tpms_type": args.tpms_type,
                 "res": args.res,
@@ -237,9 +234,7 @@ def main():
                 generator.save_obj(args.output)
             case _:
                 flat_cap = args.flat_cap if args.input_stl else True
-                generator.save_stl(
-                    args.output, prepare_manifold=True, flat_cap=flat_cap
-                )
+                generator.save_stl(args.output, prepare_manifold=True, flat_cap=flat_cap)
         print(f"Mesh saved successfully to {args.output}")
 
         # Offscreen render thumbnail if requested

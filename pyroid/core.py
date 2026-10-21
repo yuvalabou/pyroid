@@ -3,24 +3,26 @@
 Contains GyroidGenerator for computing parametric gyroid surfaces in cylindrical
 coordinates and coordinating STL mesh infill conversions.
 """
+
 from collections.abc import Callable
 from dataclasses import fields
 from typing import Any
 
 import numpy as np
 import pyvista as pv
-import trimesh
 
-from pyroid.mesh_utils import (convert_stl_to_gyroid, load_stl,
-                                prepare_for_printing, render_offscreen)
+from pyroid.mesh_utils import (
+    convert_stl_to_gyroid,
+    load_stl,
+    prepare_for_printing,
+    render_offscreen,
+)
 from pyroid.models import GyroidParams, STLConversionParams
 from pyroid.tpms import get_tpms_kernel
 
 
 class GyroidGenerator:
     """Core class for generating parametric gyroid structures and converting STL meshes."""
-
-    DEFAULT_PARAMS = GyroidParams().to_dict()
 
     def __init__(self, params: GyroidParams | dict[str, Any] | None = None):
         """
@@ -44,9 +46,7 @@ class GyroidGenerator:
         """Validate parameters using the GyroidParams data model."""
         return self.params.validate()
 
-    def generate(
-        self, progress_callback: Callable[[int, str], None] | None = None
-    ) -> pv.PolyData:
+    def generate(self, progress_callback: Callable[[int, str], None] | None = None) -> pv.PolyData:
         """
         Generate the radially symmetrical gyroid/TPMS mesh using current parameters.
 
@@ -69,9 +69,7 @@ class GyroidGenerator:
 
         # Generate cylindrical/radial grid domain
         ky = 2.0 * np.pi / p.b
-        r_aux, phi, z = np.mgrid[
-            0 : p.a : res * 1j, 0 : p.b : res * 1j, 0 : p.c : res * 1j
-        ]
+        r_aux, phi, z = np.mgrid[0 : p.a : res * 1j, 0 : p.b : res * 1j, 0 : p.c : res * 1j]
 
         r = (p.r2 - p.r1) / p.a * r_aux + p.r1
 
@@ -141,9 +139,7 @@ class GyroidGenerator:
             progress_callback(5, "Loading STL geometry...")
 
         tri_mesh, _ = load_stl(stl_params.stl_path)
-        self.mesh = convert_stl_to_gyroid(
-            tri_mesh, stl_params, progress_callback=progress_callback
-        )
+        self.mesh = convert_stl_to_gyroid(tri_mesh, stl_params, progress_callback=progress_callback)
         self.cavity_a = getattr(self.mesh, "cavity_a", None)
         self.cavity_b = getattr(self.mesh, "cavity_b", None)
         return self.mesh
@@ -165,11 +161,7 @@ class GyroidGenerator:
         """Save the generated mesh as an OBJ file."""
         if self.mesh is None:
             raise ValueError("No mesh has been generated yet")
-
-        tri = trimesh.Trimesh(
-            vertices=self.mesh.points, faces=self.mesh.faces.reshape((-1, 4))[:, 1:]
-        )
-        tri.export(filename)
+        self.mesh.save(filename)
 
     def save_screenshot(self, filename: str) -> None:
         """Save a rendered PNG thumbnail of the mesh."""
@@ -187,7 +179,6 @@ class GyroidGenerator:
             "n_cells": self.mesh.n_cells,
             "volume": self.mesh.volume,
             "surface_area": self.mesh.area,
-            "has_normals": self.mesh.face_normals is not None,
         }
 
     @classmethod
@@ -199,7 +190,7 @@ class GyroidGenerator:
     def get_presets(cls) -> dict[str, dict[str, Any]]:
         """Return predefined parameter presets."""
         return {
-            "default": cls.DEFAULT_PARAMS,
+            "default": GyroidParams().to_dict(),
             "fine_detail": {
                 "res": 120,
                 "a": 24,

@@ -37,55 +37,22 @@ from pyroid.models import GyroidParams, STLConversionParams
 from pyroid.tpms import get_all_tpms_kernels, get_tpms_kernel
 
 
-class ParametricWorker(QThread):
-    """Worker thread for parametric gyroid generation."""
+class GeneratorWorker(QThread):
+    """Worker thread for parametric and STL conversion tasks."""
 
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
     progress = pyqtSignal(int)
     status = pyqtSignal(str)
 
-    def __init__(self, params: GyroidParams):
+    def __init__(self, task_fn):
         super().__init__()
-        self.params = params
+        self.task_fn = task_fn
 
     def run(self):
         try:
-            generator = GyroidGenerator(self.params)
-
-            def on_progress(percent: int, message: str):
-                self.progress.emit(percent)
-                self.status.emit(message)
-
-            generator.generate(progress_callback=on_progress)
-            self.progress.emit(100)
-            self.finished.emit(generator)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
-class STLConversionWorker(QThread):
-    """Worker thread for converting an STL volume to a gyroid lattice."""
-
-    finished = pyqtSignal(object)
-    error = pyqtSignal(str)
-    progress = pyqtSignal(int)
-    status = pyqtSignal(str)
-
-    def __init__(self, stl_params: STLConversionParams):
-        super().__init__()
-        self.stl_params = stl_params
-
-    def run(self):
-        try:
-            generator = GyroidGenerator()
-
-            def on_progress(percent: int, message: str):
-                self.progress.emit(percent)
-                self.status.emit(message)
-
-            generator.convert_from_stl(
-                self.stl_params, progress_callback=on_progress
+            generator = self.task_fn(
+                lambda pct, msg: (self.progress.emit(pct), self.status.emit(msg))
             )
             self.progress.emit(100)
             self.finished.emit(generator)
@@ -107,9 +74,7 @@ class GyroidGeneratorGUI(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle(
-            "PyRoid - Radially Symmetrical Gyroid Generator & STL Volume Infill"
-        )
+        self.setWindowTitle("PyRoid - Radially Symmetrical Gyroid Generator & STL Volume Infill")
         self.setGeometry(100, 100, 1280, 750)
         self.setAcceptDrops(True)
 
@@ -156,7 +121,7 @@ class GyroidGeneratorGUI(QMainWindow):
         preset_combo_layout = QHBoxLayout()
         preset_combo_layout.addWidget(QLabel("Preset:"))
         self.preset_combo = QComboBox()
-        for p in GyroidGenerator.get_presets().keys():
+        for p in GyroidGenerator.get_presets():
             self.preset_combo.addItem(p)
         self.preset_combo.currentTextChanged.connect(self.on_preset_changed)
         preset_combo_layout.addWidget(self.preset_combo)
@@ -276,9 +241,7 @@ class GyroidGeneratorGUI(QMainWindow):
         # Target Infill %
         infill_row = QHBoxLayout()
         self.stl_infill_label = QLabel("Target Infill (%):")
-        infill_tip = (
-            "Target solid volume percentage (1 to 99); automatically determines unit cell size from Wall Thickness"
-        )
+        infill_tip = "Target solid volume percentage (1 to 99); automatically determines unit cell size from Wall Thickness"
         self.stl_infill_label.setToolTip(infill_tip)
         infill_row.addWidget(self.stl_infill_label)
         self.stl_infill_edit = QLineEdit("30")
@@ -323,9 +286,7 @@ class GyroidGeneratorGUI(QMainWindow):
         stl_params_layout.addLayout(bias_row)
 
         # Skeletal Mode Checkbox
-        self.stl_skeletal_check = QCheckBox(
-            "Skeletal lattice (struts with single drain void)"
-        )
+        self.stl_skeletal_check = QCheckBox("Skeletal lattice (struts with single drain void)")
         self.stl_skeletal_check.setChecked(False)
         self.stl_skeletal_check.setToolTip(
             "Generate network-based struts with a single continuous void channel, ideal for resin draining."
@@ -336,13 +297,17 @@ class GyroidGeneratorGUI(QMainWindow):
         # Flat Capping
         self.stl_cap_check = QCheckBox("Planar slice & cap surfaces for 3D printing")
         self.stl_cap_check.setChecked(False)
-        self.stl_cap_check.setToolTip("Trim and cap top and bottom Z extremes for a flat build-plate interface")
+        self.stl_cap_check.setToolTip(
+            "Trim and cap top and bottom Z extremes for a flat build-plate interface"
+        )
         stl_params_layout.addWidget(self.stl_cap_check)
 
         # Preserve Shell
         self.stl_shell_check = QCheckBox("Preserve original STL outer shell")
         self.stl_shell_check.setChecked(False)
-        self.stl_shell_check.setToolTip("Keep the outer skin of the input STL solid and fill only the interior")
+        self.stl_shell_check.setToolTip(
+            "Keep the outer skin of the input STL solid and fill only the interior"
+        )
         self.stl_shell_check.toggled.connect(self.on_shell_check_toggled)
         stl_params_layout.addWidget(self.stl_shell_check)
 
@@ -404,9 +369,7 @@ class GyroidGeneratorGUI(QMainWindow):
         view_layout.addLayout(cav_row)
 
         self.cutaway_check = QCheckBox("Show Cross-Section (Cutaway)")
-        self.cutaway_check.setToolTip(
-            "Slice mesh along X-axis to inspect internal gyroid infill"
-        )
+        self.cutaway_check.setToolTip("Slice mesh along X-axis to inspect internal gyroid infill")
         self.cutaway_check.toggled.connect(self.on_view_mode_changed)
         view_layout.addWidget(self.cutaway_check)
         left_layout.addWidget(view_box)
@@ -488,9 +451,7 @@ class GyroidGeneratorGUI(QMainWindow):
                     self.param_tpms_combo.setCurrentIndex(idx)
 
     def save_current_as_preset(self):
-        name, ok = QFileDialog.getSaveFileName(
-            self, "Save Preset", "", "Preset Files (*.json)"
-        )
+        name, ok = QFileDialog.getSaveFileName(self, "Save Preset", "", "Preset Files (*.json)")
         if ok and name:
             if not name.endswith(".json"):
                 name += ".json"
@@ -500,7 +461,7 @@ class GyroidGeneratorGUI(QMainWindow):
                     json.dump(params.to_dict(), f, indent=4)
                 QMessageBox.information(self, "Success", f"Preset saved as {name}")
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to save preset: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to save preset: {e!s}")
 
     def get_params_from_ui(self) -> GyroidParams:
         raw_dict = {}
@@ -586,9 +547,7 @@ class GyroidGeneratorGUI(QMainWindow):
     def load_stl_file(self, file_path: str):
         """Load an STL file, switch to STL conversion tab, and preview in 3D."""
         if not file_path or not os.path.isfile(file_path):
-            QMessageBox.warning(
-                self, "File Not Found", f"STL file does not exist:\n{file_path}"
-            )
+            QMessageBox.warning(self, "File Not Found", f"STL file does not exist:\n{file_path}")
             return
 
         self.stl_path_edit.setText(file_path)
@@ -627,9 +586,7 @@ class GyroidGeneratorGUI(QMainWindow):
             self.tabs.setCurrentIndex(0)
             self.statusBar.showMessage(f"Loaded preset: {os.path.basename(file_path)}")
         except Exception as e:
-            QMessageBox.warning(
-                self, "Invalid Preset", f"Failed to load preset: {str(e)}"
-            )
+            QMessageBox.warning(self, "Invalid Preset", f"Failed to load preset: {e!s}")
 
     def on_browse_stl(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -652,7 +609,12 @@ class GyroidGeneratorGUI(QMainWindow):
             self.progressBar.setVisible(True)
             self.progressBar.setValue(0)
 
-            self.worker = ParametricWorker(params)
+            def _gen_task(cb):
+                gen = GyroidGenerator(params)
+                gen.generate(progress_callback=cb)
+                return gen
+
+            self.worker = GeneratorWorker(_gen_task)
             self.worker.finished.connect(self.on_generation_finished)
             self.worker.error.connect(self.on_generation_error)
             self.worker.progress.connect(self.progressBar.setValue)
@@ -665,9 +627,7 @@ class GyroidGeneratorGUI(QMainWindow):
     def on_convert_stl_clicked(self):
         stl_path = self.stl_path_edit.text().strip()
         if not stl_path or not os.path.exists(stl_path):
-            QMessageBox.warning(
-                self, "Warning", "Please select a valid existing STL file."
-            )
+            QMessageBox.warning(self, "Warning", "Please select a valid existing STL file.")
             return
 
         try:
@@ -675,9 +635,7 @@ class GyroidGeneratorGUI(QMainWindow):
             wall_thick = float(self.stl_wall_edit.text())
             is_skeletal = self.stl_skeletal_check.isChecked()
             tpms_type = (
-                self.stl_tpms_combo.currentData()
-                if hasattr(self, "stl_tpms_combo")
-                else "gyroid"
+                self.stl_tpms_combo.currentData() if hasattr(self, "stl_tpms_combo") else "gyroid"
             )
             if self.stl_cell_check.isChecked():
                 cell_size = float(self.stl_cell_edit.text())
@@ -712,14 +670,19 @@ class GyroidGeneratorGUI(QMainWindow):
             self.progressBar.setVisible(True)
             self.progressBar.setValue(0)
 
-            self.stl_worker = STLConversionWorker(stl_params)
-            self.stl_worker.finished.connect(self.on_generation_finished)
-            self.stl_worker.error.connect(self.on_generation_error)
-            self.stl_worker.progress.connect(self.progressBar.setValue)
-            self.stl_worker.status.connect(self.statusBar.showMessage)
-            self.stl_worker.start()
+            def _stl_task(cb):
+                gen = GyroidGenerator()
+                gen.convert_from_stl(stl_params, progress_callback=cb)
+                return gen
+
+            self.worker = GeneratorWorker(_stl_task)
+            self.worker.finished.connect(self.on_generation_finished)
+            self.worker.error.connect(self.on_generation_error)
+            self.worker.progress.connect(self.progressBar.setValue)
+            self.worker.status.connect(self.statusBar.showMessage)
+            self.worker.start()
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Invalid parameters: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Invalid parameters: {e!s}")
 
     def on_cell_override_toggled(self, checked: bool):
         self.stl_cell_edit.setEnabled(checked)
@@ -731,9 +694,7 @@ class GyroidGeneratorGUI(QMainWindow):
         self.stl_shell_edit.setEnabled(checked)
 
     def on_skeletal_toggled(self, _checked: bool = False):
-        is_skeletal_stl = (
-            self.tabs.currentIndex() == 1 and self.stl_skeletal_check.isChecked()
-        )
+        is_skeletal_stl = self.tabs.currentIndex() == 1 and self.stl_skeletal_check.isChecked()
         self.stl_bias_label.setEnabled(not self.stl_skeletal_check.isChecked())
         self.stl_bias_edit.setEnabled(not self.stl_skeletal_check.isChecked())
         self.show_cav_a_check.setEnabled(not is_skeletal_stl)
@@ -777,9 +738,7 @@ class GyroidGeneratorGUI(QMainWindow):
                 if show_cavs:
                     self.plotter.add_mesh(wall, color="#cccccc", opacity=0.25)
                 else:
-                    self.plotter.add_mesh(
-                        wall, scalars=wall.points[:, -1], show_scalar_bar=False
-                    )
+                    self.plotter.add_mesh(wall, scalars=wall.points[:, -1], show_scalar_bar=False)
 
         if self.show_cav_a_check.isChecked() and self.generator.cavity_a is not None:
             cav_a = self._clip_if_enabled(self.generator.cavity_a, origin)
@@ -801,9 +760,7 @@ class GyroidGeneratorGUI(QMainWindow):
         self.generator = generator
         elapsed = time.perf_counter() - self._gen_start_time
         n_cells = generator.mesh.n_cells if generator.mesh is not None else 0
-        self.statusBar.showMessage(
-            f"Ready: {n_cells:,} faces generated in {elapsed:.2f}s"
-        )
+        self.statusBar.showMessage(f"Ready: {n_cells:,} faces generated in {elapsed:.2f}s")
         self.generate_btn.setEnabled(True)
         self.convert_stl_btn.setEnabled(True)
         self.progressBar.setVisible(False)
@@ -821,9 +778,7 @@ class GyroidGeneratorGUI(QMainWindow):
             stats = self.generator.get_mesh_stats()
             self.stats_labels["n_points"].setText(f"Points: {stats['n_points']:,}")
             self.stats_labels["n_cells"].setText(f"Cells: {stats['n_cells']:,}")
-            self.stats_labels["volume"].setText(
-                f"Volume: {stats['volume']:.2f} cubic units"
-            )
+            self.stats_labels["volume"].setText(f"Volume: {stats['volume']:.2f} cubic units")
             self.stats_labels["surface_area"].setText(
                 f"Surface Area: {stats['surface_area']:.2f} square units"
             )
@@ -844,9 +799,7 @@ class GyroidGeneratorGUI(QMainWindow):
                 case "stl":
                     is_stl_tab = self.tabs.currentIndex() == 1
                     flat_cap = self.stl_cap_check.isChecked() if is_stl_tab else True
-                    self.generator.save_stl(
-                        filename, prepare_manifold=True, flat_cap=flat_cap
-                    )
+                    self.generator.save_stl(filename, prepare_manifold=True, flat_cap=flat_cap)
                 case "obj":
                     self.generator.save_obj(filename)
             self.statusBar.showMessage(f"Saved to {filename}")

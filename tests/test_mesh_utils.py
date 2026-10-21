@@ -1,4 +1,5 @@
 """Unit tests for mesh processing utilities and STL infill conversion."""
+
 import numpy as np
 import pyvista as pv
 import trimesh
@@ -15,7 +16,9 @@ def test_stl_gyroid_conversion(tmp_path):
     tri_mesh, _ = load_stl(tmp_path_stl)
     assert len(tri_mesh.vertices) > 0
 
-    params = STLConversionParams(stl_path=tmp_path_stl, resolution=30, cell_size=3.0, wall_thickness=0.5)
+    params = STLConversionParams(
+        stl_path=tmp_path_stl, resolution=30, cell_size=3.0, wall_thickness=0.5
+    )
     gyroid_mesh = convert_stl_to_gyroid(tri_mesh, params)
     assert isinstance(gyroid_mesh, pv.PolyData)
     assert gyroid_mesh.n_points > 0
@@ -31,7 +34,12 @@ def test_stl_gyroid_conversion_with_preserved_shell(tmp_path):
 
     tri_mesh, _ = load_stl(tmp_path_stl)
     params = STLConversionParams(
-        stl_path=tmp_path_stl, resolution=30, cell_size=3.0, wall_thickness=0.5, preserve_shell=True, shell_thickness=1.0
+        stl_path=tmp_path_stl,
+        resolution=30,
+        cell_size=3.0,
+        wall_thickness=0.5,
+        preserve_shell=True,
+        shell_thickness=1.0,
     )
 
     gyroid_mesh = convert_stl_to_gyroid(tri_mesh, params)
@@ -43,7 +51,10 @@ def test_stl_gyroid_conversion_with_preserved_shell(tmp_path):
     assert tri_printable.is_watertight
 
     np.testing.assert_allclose(tri_printable.bounds, cube.bounds, atol=1e-3)
-    diffs = np.min(np.linalg.norm(tri_printable.vertices[:, None, :] - cube.vertices[None, :, :], axis=2), axis=0)
+    diffs = np.min(
+        np.linalg.norm(tri_printable.vertices[:, None, :] - cube.vertices[None, :, :], axis=2),
+        axis=0,
+    )
     assert (diffs < 1e-4).all()
 
 
@@ -53,10 +64,14 @@ def test_stl_gyroid_calibrated_wall_thickness(tmp_path):
     cube.export(tmp_path_stl)
 
     tri_mesh, _ = load_stl(tmp_path_stl)
-    params_thin = STLConversionParams(stl_path=tmp_path_stl, resolution=40, cell_size=5.0, wall_thickness=0.4)
+    params_thin = STLConversionParams(
+        stl_path=tmp_path_stl, resolution=40, cell_size=5.0, wall_thickness=0.4
+    )
     mesh_thin = convert_stl_to_gyroid(tri_mesh, params_thin)
 
-    params_thick = STLConversionParams(stl_path=tmp_path_stl, resolution=40, cell_size=5.0, wall_thickness=1.0)
+    params_thick = STLConversionParams(
+        stl_path=tmp_path_stl, resolution=40, cell_size=5.0, wall_thickness=1.0
+    )
     mesh_thick = convert_stl_to_gyroid(tri_mesh, params_thick)
 
     assert mesh_thin.n_points > 0
@@ -70,10 +85,14 @@ def test_stl_gyroid_progress_callback(tmp_path):
     cube.export(tmp_path_stl)
 
     tri_mesh, _ = load_stl(tmp_path_stl)
-    params = STLConversionParams(stl_path=tmp_path_stl, resolution=30, cell_size=5.0, wall_thickness=0.8)
+    params = STLConversionParams(
+        stl_path=tmp_path_stl, resolution=30, cell_size=5.0, wall_thickness=0.8
+    )
     updates = []
 
-    convert_stl_to_gyroid(tri_mesh, params, progress_callback=lambda pct, msg: updates.append((pct, msg)))
+    convert_stl_to_gyroid(
+        tri_mesh, params, progress_callback=lambda pct, msg: updates.append((pct, msg))
+    )
 
     assert len(updates) >= 4
     percentages = [u[0] for u in updates]
@@ -88,8 +107,12 @@ def test_stl_gyroid_skeletal_conversion(tmp_path):
     cube.export(tmp_path_stl)
 
     tri_mesh, _ = load_stl(tmp_path_stl)
-    params_sheet = STLConversionParams(stl_path=tmp_path_stl, resolution=30, cell_size=5.0, wall_thickness=0.8, is_skeletal=False)
-    params_skeletal = STLConversionParams(stl_path=tmp_path_stl, resolution=30, cell_size=5.0, wall_thickness=0.8, is_skeletal=True)
+    params_sheet = STLConversionParams(
+        stl_path=tmp_path_stl, resolution=30, cell_size=5.0, wall_thickness=0.8, is_skeletal=False
+    )
+    params_skeletal = STLConversionParams(
+        stl_path=tmp_path_stl, resolution=30, cell_size=5.0, wall_thickness=0.8, is_skeletal=True
+    )
 
     mesh_sheet = convert_stl_to_gyroid(tri_mesh, params_sheet)
     mesh_skeletal = convert_stl_to_gyroid(tri_mesh, params_skeletal)
@@ -99,7 +122,13 @@ def test_stl_gyroid_skeletal_conversion(tmp_path):
     assert mesh_skeletal.n_cells < mesh_sheet.n_cells
 
     params_skeletal_shell = STLConversionParams(
-        stl_path=tmp_path_stl, resolution=30, cell_size=5.0, wall_thickness=0.8, preserve_shell=True, shell_thickness=0.8, is_skeletal=True
+        stl_path=tmp_path_stl,
+        resolution=30,
+        cell_size=5.0,
+        wall_thickness=0.8,
+        preserve_shell=True,
+        shell_thickness=0.8,
+        is_skeletal=True,
     )
     mesh_shell = convert_stl_to_gyroid(tri_mesh, params_skeletal_shell)
     assert mesh_shell.n_points > 0
@@ -133,12 +162,22 @@ def test_stl_gyroid_target_infill_percent(tmp_path):
 
     mesh_low = convert_stl_to_gyroid(
         tri_mesh,
-        STLConversionParams(stl_path=tmp_path_stl, resolution=35, cell_size=cell_25, wall_thickness=0.8, infill_percent=25.0),
+        STLConversionParams(
+            stl_path=tmp_path_stl,
+            resolution=35,
+            cell_size=cell_25,
+            wall_thickness=0.8,
+            infill_percent=25.0,
+        ),
     )
     mesh_high = convert_stl_to_gyroid(
         tri_mesh,
-        STLConversionParams(stl_path=tmp_path_stl, resolution=35, cell_size=cell_60, wall_thickness=0.8, infill_percent=60.0),
+        STLConversionParams(
+            stl_path=tmp_path_stl,
+            resolution=35,
+            cell_size=cell_60,
+            wall_thickness=0.8,
+            infill_percent=60.0,
+        ),
     )
     assert mesh_high.volume > mesh_low.volume
-
-

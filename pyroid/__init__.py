@@ -1,8 +1,4 @@
-"""
-PyRoid - A Radially Symmetrical Gyroid Generator
+"""PyRoid - Radially Symmetrical Gyroid Generator & STL Volume Infill Tool."""
 
-Generates customizable gyroid structures for 3D printing and visualization.
-"""
-
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "PyRoid Team"

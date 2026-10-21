@@ -1,11 +1,14 @@
 """Tests for PyRoid PyQt5 graphical user interface and interaction."""
-import os
+
 import json
+import os
+
 import pytest
 import trimesh
-from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import QMimeData, QUrl, QPoint, Qt
+from PyQt5.QtCore import QMimeData, QPoint, Qt, QUrl
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent
+from PyQt5.QtWidgets import QApplication
+
 from pyroid.gui import GyroidGeneratorGUI
 
 

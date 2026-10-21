@@ -1,6 +1,7 @@
 """Unit tests for PyRoid core generation engine and parameters."""
-import pytest
+
 import pyvista as pv
+
 from pyroid.core import GyroidGenerator
 from pyroid.models import GyroidParams, STLConversionParams
 
@@ -23,7 +24,9 @@ def test_stl_conversion_params_validation():
     assert valid
     assert err == ""
 
-    invalid_params = STLConversionParams(stl_path="test.stl", preserve_shell=True, shell_thickness=-1.0)
+    invalid_params = STLConversionParams(
+        stl_path="test.stl", preserve_shell=True, shell_thickness=-1.0
+    )
     valid, err = invalid_params.validate()
     assert not valid
     assert "Shell thickness must be positive" in err
@@ -55,6 +58,7 @@ def test_mesh_statistics():
 
 def test_gyroid_generation_progress_callback():
     updates = []
+
     def callback(percent, msg):
         updates.append((percent, msg))
 
@@ -69,4 +73,3 @@ def test_gyroid_generation_progress_callback():
     assert all(0 <= p <= 100 for p in percentages)
     assert any("grid" in u[1].lower() for u in updates)
     assert any("isosurface" in u[1].lower() for u in updates)
-

@@ -10,6 +10,7 @@ PyRoid is a Python package, CLI tool, and Qt graphical interface for generating,
 - `pyroid/mesh_utils.py`: Utilities for mesh processing, watertight repair, STL volumetric containment masking, and offscreen rendering.
 - `pyroid/cli.py`: Command Line Interface (`pyroid-cli`).
 - `pyroid/gui.py`: Desktop PyQt5 GUI with embedded 3D PyVista renderer (`pyroid`).
+- `scripts/release.py`: Automated executable release pipeline (tests, compilation, packaging, SHA-256 checksums, watch mode).
 - `tests/`: Automated unit and integration tests powered by `pytest`.
 
 ## Technical Standards & Package Management
@@ -24,6 +25,9 @@ PyRoid is a Python package, CLI tool, and Qt graphical interface for generating,
 - **Run GUI**: `uv run main.py` or `uv run pyroid`
 - **Run CLI**: `uv run main.py --cli --output model.stl` or `uv run pyroid-cli -o model.stl`
 - **Run Tests**: `uv run pytest -v`
+- **Build Executable Release**: `uv run python scripts/release.py` or `.\scripts\build_release.bat`
+- **Auto-Rebuild on Code Update (Watch Mode)**: `uv run python scripts/release.py --watch`
+- **Install Git Commit Auto-Release Hook**: `uv run python scripts/release.py --install-git-hook`
 - **Generate Parametric Diamond**: `uv run pyroid-cli -o diamond.stl --tpms diamond`
 - **Convert STL with Diamond**: `uv run pyroid-cli -i input.stl -o diamond_output.stl --tpms diamond --cell-size 5.0`
 - **Convert STL with Shell**: `uv run pyroid-cli -i input.stl -o gyroid_output.stl --cell-size 5.0 --preserve-shell --shell-thickness 1.0`

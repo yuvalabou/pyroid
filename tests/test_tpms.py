@@ -1,8 +1,10 @@
 """Tests for Triply Periodic Minimal Surface (TPMS) mathematical kernels,
 models, and integration in PyRoid.
 """
+
 import os
 import tempfile
+
 import numpy as np
 import pytest
 import trimesh
@@ -12,7 +14,6 @@ from pyroid.models import GyroidParams, STLConversionParams
 from pyroid.tpms import (
     TPMSType,
     get_all_tpms_kernels,
-    get_tpms_kernel,
 )
 
 
@@ -130,10 +131,14 @@ def test_infill_estimation_per_tpms():
     """Verify infill estimation scales reasonably with cell size and wall thickness across TPMS types."""
     infill_g = STLConversionParams.estimate_infill(5.0, 0.8, is_skeletal=False, tpms_type="gyroid")
     infill_d = STLConversionParams.estimate_infill(5.0, 0.8, is_skeletal=False, tpms_type="diamond")
-    infill_p = STLConversionParams.estimate_infill(5.0, 0.8, is_skeletal=False, tpms_type="primitive")
+    infill_p = STLConversionParams.estimate_infill(
+        5.0, 0.8, is_skeletal=False, tpms_type="primitive"
+    )
     infill_n = STLConversionParams.estimate_infill(5.0, 0.8, is_skeletal=False, tpms_type="neovius")
 
     assert 10.0 < infill_p < infill_g < infill_d < infill_n < 95.0
 
-    c_size = STLConversionParams.estimate_cell_size(30.0, 0.8, is_skeletal=False, tpms_type="diamond")
+    c_size = STLConversionParams.estimate_cell_size(
+        30.0, 0.8, is_skeletal=False, tpms_type="diamond"
+    )
     assert 5.0 < c_size < 15.0
