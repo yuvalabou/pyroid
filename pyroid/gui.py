@@ -798,7 +798,7 @@ class GyroidGeneratorGUI(QMainWindow):
             match file_type:
                 case "stl":
                     is_stl_tab = self.tabs.currentIndex() == 1
-                    flat_cap = self.stl_cap_check.isChecked() if is_stl_tab else True
+                    flat_cap = self.stl_cap_check.isChecked() if is_stl_tab else False
                     self.generator.save_stl(filename, prepare_manifold=True, flat_cap=flat_cap)
                 case "obj":
                     self.generator.save_obj(filename)

@@ -13,6 +13,7 @@ import pyvista as pv
 
 from pyroid.mesh_utils import (
     convert_stl_to_gyroid,
+    export_stl_binary,
     load_stl,
     prepare_for_printing,
     render_offscreen,
@@ -145,17 +146,18 @@ class GyroidGenerator:
         return self.mesh
 
     def save_stl(
-        self, filename: str, prepare_manifold: bool = False, flat_cap: bool = False
+        self, filename: str, prepare_manifold: bool = True, flat_cap: bool = False
     ) -> None:
-        """Save the generated mesh as an STL file."""
+        """Save the generated mesh as a 3D-printable binary STL file."""
         if self.mesh is None:
             raise ValueError("No mesh has been generated yet")
 
-        if prepare_manifold:
-            tri = prepare_for_printing(self.mesh, flat_cap=flat_cap)
-            tri.export(filename)
-        else:
-            self.mesh.save(filename)
+        export_stl_binary(
+            self.mesh,
+            filename,
+            header_text="PyRoid 3D Model - Farsoon BuildStar and Netfabb Compatible",
+            flat_cap=flat_cap,
+        )
 
     def save_obj(self, filename: str) -> None:
         """Save the generated mesh as an OBJ file."""

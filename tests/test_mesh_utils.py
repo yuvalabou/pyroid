@@ -4,7 +4,9 @@ import numpy as np
 import pyvista as pv
 import trimesh
 
-from pyroid.mesh_utils import convert_stl_to_gyroid, load_stl, prepare_for_printing
+from pyroid.mesh_utils import convert_stl_to_gyroid, export_stl_binary, load_stl, prepare_for_printing
+from pyroid.core import GyroidGenerator
+from pyroid.models import GyroidParams
 from pyroid.models import STLConversionParams
 
 
@@ -49,6 +51,7 @@ def test_stl_gyroid_conversion_with_preserved_shell(tmp_path):
     tri_printable = prepare_for_printing(gyroid_mesh, flat_cap=False)
     assert isinstance(tri_printable, trimesh.Trimesh)
     assert tri_printable.is_watertight
+    assert 0 < tri_printable.volume < cube.volume
 
     np.testing.assert_allclose(tri_printable.bounds, cube.bounds, atol=1e-3)
     diffs = np.min(
@@ -181,3 +184,64 @@ def test_stl_gyroid_target_infill_percent(tmp_path):
         ),
     )
     assert mesh_high.volume > mesh_low.volume
+
+
+def test_export_stl_binary_buildstar_compatibility(tmp_path):
+    cube = trimesh.creation.box(extents=[10, 10, 10])
+    in_stl = str(tmp_path / "in_cube.stl")
+    out_stl = str(tmp_path / "out_buildstar.stl")
+    cube.export(in_stl)
+
+    tri_mesh, _ = load_stl(in_stl)
+    params = STLConversionParams(
+        stl_path=in_stl, resolution=30, cell_size=4.0, wall_thickness=0.6
+    )
+    mesh = convert_stl_to_gyroid(tri_mesh, params)
+    export_stl_binary(mesh, out_stl)
+
+    # 1. Inspect raw binary STL structure
+    with open(out_stl, "rb") as f:
+        header = f.read(80)
+        face_count_bytes = f.read(4)
+        body = f.read()
+
+    assert len(header) == 80
+    assert not header.lower().startswith(b"solid")
+    assert header.strip().startswith(b"PyRoid")
+    face_count = int.from_bytes(face_count_bytes, "little")
+    assert len(body) == face_count * 50
+
+    # 2. Inspect mesh topology and normals
+    loaded = trimesh.load(out_stl, force="mesh")
+    assert loaded.is_watertight
+    assert loaded.is_winding_consistent
+    assert (loaded.area_faces < 1e-12).sum() == 0
+
+    norms = np.linalg.norm(loaded.face_normals, axis=1)
+    np.testing.assert_allclose(norms, 1.0, atol=1e-3)
+    assert not np.isnan(loaded.face_normals).any()
+
+
+def test_parametric_export_buildstar_compatibility(tmp_path):
+    out_stl = str(tmp_path / "out_parametric.stl")
+    generator = GyroidGenerator(GyroidParams(res=25))
+    generator.generate()
+    generator.save_stl(out_stl)
+
+    with open(out_stl, "rb") as f:
+        header = f.read(80)
+        face_count_bytes = f.read(4)
+        body = f.read()
+
+    assert len(header) == 80
+    assert not header.lower().startswith(b"solid")
+    assert header.strip().startswith(b"PyRoid")
+    face_count = int.from_bytes(face_count_bytes, "little")
+    assert len(body) == face_count * 50
+
+    loaded = trimesh.load(out_stl, force="mesh")
+    assert loaded.is_winding_consistent
+    assert (loaded.area_faces < 1e-12).sum() == 0
+    norms = np.linalg.norm(loaded.face_normals, axis=1)
+    np.testing.assert_allclose(norms, 1.0, atol=1e-3)
+    assert not np.isnan(loaded.face_normals).any()

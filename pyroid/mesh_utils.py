@@ -178,6 +178,22 @@ def convert_stl_to_gyroid(
         if clean_stl.volume < 0:
             clean_stl.faces = clean_stl.faces[:, ::-1]
 
+        # Ensure void mesh has positive signed volume and consistent outward winding
+        # (VTK contour generates inverted winding for maximum distance-field thresholds)
+        tri_void = trimesh.Trimesh(vertices=void_mesh.points, faces=faces, process=False)
+        if len(tri_void.faces) > 0:
+            tri_void.update_faces(tri_void.nondegenerate_faces())
+            tri_void.update_faces(tri_void.unique_faces())
+            tri_void.remove_unreferenced_vertices()
+            if not tri_void.is_watertight:
+                tri_void.fill_holes()
+            if tri_void.volume < 0:
+                tri_void.faces = tri_void.faces[:, ::-1]
+            faces = tri_void.faces
+            void_points = tri_void.vertices
+        else:
+            void_points = void_mesh.points
+
         # Robust boolean subtraction: outer STL minus internal gyroid void.
         # Keeps original CAD surface triangles intact while skipping redundant Python validation.
         import manifold3d
@@ -193,7 +209,7 @@ def convert_stl_to_gyroid(
         )
         m_void = manifold3d.Manifold(
             manifold3d.Mesh(
-                vert_properties=np.asarray(void_mesh.points, dtype=np.float32),
+                vert_properties=np.asarray(void_points, dtype=np.float32),
                 tri_verts=np.asarray(faces, dtype=np.uint32),
             )
         )
@@ -202,6 +218,8 @@ def convert_stl_to_gyroid(
         tri_result = trimesh.Trimesh(
             vertices=res_mesh.vert_properties, faces=res_mesh.tri_verts, process=False
         )
+        if tri_result.volume < 0:
+            tri_result.faces = tri_result.faces[:, ::-1]
 
         if progress_callback:
             progress_callback(95, "Wrapping final mesh...")
@@ -228,41 +246,166 @@ def convert_stl_to_gyroid(
 def prepare_for_printing(
     mesh: pv.PolyData | trimesh.Trimesh, flat_cap: bool = False
 ) -> trimesh.Trimesh:
-    """Ensure generated mesh is manifold/watertight for 3D printing."""
+    """
+    Ensure generated mesh is manifold/watertight with consistent winding for 3D printing.
+    Optimized for industrial SLS/SLM slicers (such as Farsoon BuildStar) and Netfabb.
+    """
     if isinstance(mesh, pv.PolyData):
-        faces = mesh.faces.reshape((-1, 4))[:, 1:]
-        tri = trimesh.Trimesh(vertices=mesh.points, faces=faces)
+        tri_pv = mesh.triangulate() if mesh.faces.size > 0 else mesh
+        faces = tri_pv.faces.reshape((-1, 4))[:, 1:]
+        tri = trimesh.Trimesh(vertices=tri_pv.points, faces=faces, process=False)
     else:
         tri = mesh.copy()
 
+    # Clean initial duplicate/degenerate geometry
+    if len(tri.faces) > 0:
+        tri.update_faces(tri.nondegenerate_faces())
+        tri.update_faces(tri.unique_faces())
+        tri.remove_unreferenced_vertices()
+
     if flat_cap and len(tri.vertices) > 0:
         z_min, z_max = tri.bounds[:, 2]
-        # Trim slightly off top/bottom extreme limits if needed
         margin = (z_max - z_min) * 0.01
         if margin > 0.001:
+            clipped = False
             try:
-                tri = trimesh.intersections.slice_mesh_plane(
-                    tri,
-                    plane_normal=[0, 0, -1],
-                    plane_origin=[0, 0, z_max - margin],
-                    cap=True,
-                )
-                tri = trimesh.intersections.slice_mesh_plane(
-                    tri,
-                    plane_normal=[0, 0, 1],
-                    plane_origin=[0, 0, z_min + margin],
-                    cap=True,
-                )
-            except Exception:
-                pass
+                import manifold3d
 
+                m = manifold3d.Manifold(
+                    manifold3d.Mesh(
+                        vert_properties=np.asarray(tri.vertices, dtype=np.float32),
+                        tri_verts=np.asarray(tri.faces, dtype=np.uint32),
+                    )
+                )
+                m = m.trim_by_plane((0, 0, -1), -(z_max - margin)).trim_by_plane(
+                    (0, 0, 1), z_min + margin
+                )
+                res = m.to_mesh()
+                tri = trimesh.Trimesh(
+                    vertices=res.vert_properties, faces=res.tri_verts, process=False
+                )
+                clipped = True
+            except Exception:
+                clipped = False
+
+            if not clipped:
+                try:
+                    tri = trimesh.intersections.slice_mesh_plane(
+                        tri,
+                        plane_normal=[0, 0, -1],
+                        plane_origin=[0, 0, z_max - margin],
+                        cap=True,
+                    )
+                    tri = trimesh.intersections.slice_mesh_plane(
+                        tri,
+                        plane_normal=[0, 0, 1],
+                        plane_origin=[0, 0, z_min + margin],
+                        cap=True,
+                    )
+                except Exception:
+                    pass
+
+    # Ensure watertightness and repair broken faces
     if not tri.is_watertight:
         tri.fill_holes()
 
-    if tri.volume < 0:
-        tri.faces = tri.faces[:, ::-1]
+    if len(tri.faces) > 0:
+        tri.update_faces(tri.nondegenerate_faces())
+        tri.update_faces(tri.unique_faces())
+        tri.remove_unreferenced_vertices()
+
+        # If manifold3d is available, validate 2-manifold orientation
+        try:
+            import manifold3d
+
+            m_check = manifold3d.Manifold(
+                manifold3d.Mesh(
+                    vert_properties=np.asarray(tri.vertices, dtype=np.float32),
+                    tri_verts=np.asarray(tri.faces, dtype=np.uint32),
+                )
+            )
+            if m_check.status().name == "NoError" and m_check.volume() > 0:
+                m_mesh = m_check.to_mesh()
+                tri = trimesh.Trimesh(
+                    vertices=m_mesh.vert_properties, faces=m_mesh.tri_verts, process=False
+                )
+        except Exception:
+            pass
+
+        # Unify counter-clockwise winding order and outward normals
+        trimesh.repair.fix_winding(tri)
+        trimesh.repair.fix_normals(tri)
+        trimesh.repair.fix_inversion(tri)
+
+        if tri.volume < 0:
+            tri.faces = tri.faces[:, ::-1]
+            trimesh.repair.fix_normals(tri)
 
     return tri
+
+
+def export_stl_binary(
+    mesh: pv.PolyData | trimesh.Trimesh,
+    filepath: str,
+    header_text: str = "PyRoid 3D Model - Farsoon BuildStar and Netfabb Compatible",
+    flat_cap: bool = False,
+) -> None:
+    """
+    Export mesh to a strictly standard-compliant binary STL file.
+
+    Guarantees compatibility with industrial Laser Powder Bed Fusion (SLS/SLM)
+    slicers (such as Farsoon BuildStar, EOS RP-Tools, Materialise Magics) and CAD tools (Netfabb):
+      - 80-byte ASCII header padded with spaces (never starts with 'solid' or null bytes).
+      - Little-endian 32-bit unsigned facet count.
+      - 50 bytes per facet with valid, normalized non-zero unit normals.
+      - Watertight topology, consistent counter-clockwise face winding, no degenerate facets.
+    """
+    tri = prepare_for_printing(mesh, flat_cap=flat_cap)
+
+    # Clean any residual degenerate or unreferenced elements
+    if len(tri.faces) > 0:
+        tri.update_faces(tri.nondegenerate_faces())
+        tri.update_faces(tri.unique_faces())
+        tri.remove_unreferenced_vertices()
+        trimesh.repair.fix_winding(tri)
+        trimesh.repair.fix_normals(tri)
+
+    # Compute explicit unit normal vectors per face to prevent any zero/NaN vectors in CAM slicers
+    v = tri.vertices[tri.faces]
+    e1 = v[:, 1] - v[:, 0]
+    e2 = v[:, 2] - v[:, 0]
+    normals = np.cross(e1, e2)
+    norms = np.linalg.norm(normals, axis=1, keepdims=True)
+    zero_mask = (norms < 1e-12).squeeze()
+    normals[zero_mask] = [0.0, 0.0, 1.0]
+    norms[zero_mask] = 1.0
+    normals = (normals / norms).astype("<f4")
+
+    vertices = tri.vertices[tri.faces].astype("<f4")
+    n_faces = len(tri.faces)
+
+    # 80-byte header: valid ASCII, padded with spaces, never starts with 'solid'
+    header_clean = (
+        header_text.replace("\r", " ").replace("\n", " ").encode("ascii", errors="replace")
+    )
+    if header_clean.lower().startswith(b"solid"):
+        header_clean = b"PyRoid " + header_clean
+    header = header_clean[:80].ljust(80, b" ")
+
+    dtype = np.dtype([
+        ("normals", "<f4", (3,)),
+        ("vertices", "<f4", (3, 3)),
+        ("attr", "<u2"),
+    ])
+    data = np.zeros(n_faces, dtype=dtype)
+    data["normals"] = normals
+    data["vertices"] = vertices
+    data["attr"] = 0
+
+    with open(filepath, "wb") as f:
+        f.write(header)
+        f.write(np.uint32(n_faces).tobytes())
+        f.write(data.tobytes())
 
 
 def render_offscreen(

@@ -233,7 +233,7 @@ def main():
             case ".obj":
                 generator.save_obj(args.output)
             case _:
-                flat_cap = args.flat_cap if args.input_stl else True
+                flat_cap = args.flat_cap
                 generator.save_stl(args.output, prepare_manifold=True, flat_cap=flat_cap)
         print(f"Mesh saved successfully to {args.output}")
 
